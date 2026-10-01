@@ -1,0 +1,73 @@
+# GitHub Engineering Metrics Pipeline
+#
+# Runs daily at 09:00 Asia/Kathmandu (UTC+5:45).
+# Processing date defaults to yesterday so the job processes the previous day's commits.
+# Can be manually triggered with any processing_date for backfill.
+#
+# Task dependency: github_bronze → github_silver → github_gold
+
+resources:
+  jobs:
+    github_pipeline:
+      name: github_pipeline
+
+      schedule:
+        # 09:00 Nepal Standard Time (Asia/Kathmandu = UTC+5:45)
+        quartz_cron_expression: "0 15 3 * * ?"
+        timezone_id: UTC
+        # Equivalent local time: 09:00 Asia/Kathmandu
+        # Stored as UTC cron to guarantee correctness; NST = UTC+5:45 → 09:00−05:45 = 03:15 UTC
+        # Use timezone_id: Asia/Kathmandu below if your Databricks workspace supports it:
+        # quartz_cron_expression: "0 0 9 * * ?"
+        # timezone_id: Asia/Kathmandu
+
+      parameters:
+        - name: catalog
+          default: ${var.catalog}
+        - name: schema
+          default: ${var.schema}
+        # processing_date defaults to yesterday; override for backfill runs
+        - name: processing_date
+          default: "yesterday"
+
+      tasks:
+        - task_key: github_bronze
+          python_wheel_task:
+            package_name: leapfrog_pulse
+            entry_point: github_bronze
+            named_parameters:
+              catalog: "{{job.parameters.catalog}}"
+              schema: "{{job.parameters.schema}}"
+              processing_date: "{{job.parameters.processing_date}}"
+          environment_key: default
+
+        - task_key: github_silver
+          depends_on:
+            - task_key: github_bronze
+          python_wheel_task:
+            package_name: leapfrog_pulse
+            entry_point: github_silver
+            named_parameters:
+              catalog: "{{job.parameters.catalog}}"
+              schema: "{{job.parameters.schema}}"
+              processing_date: "{{job.parameters.processing_date}}"
+          environment_key: default
+
+        - task_key: github_gold
+          depends_on:
+            - task_key: github_silver
+          python_wheel_task:
+            package_name: leapfrog_pulse
+            entry_point: github_gold
+            named_parameters:
+              catalog: "{{job.parameters.catalog}}"
+              schema: "{{job.parameters.schema}}"
+              processing_date: "{{job.parameters.processing_date}}"
+          environment_key: default
+
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "5"
+            dependencies:
+              - ../dist/leapfrog_pulse-0.0.1-py3-none-any.whl
