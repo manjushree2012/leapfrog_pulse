@@ -22,6 +22,9 @@ dev = [
 
 [project.scripts]
 main = "leapfrog_pulse.main:main"
+github_bronze = "leapfrog_pulse.github.bronze:main"
+github_silver = "leapfrog_pulse.github.silver:main"
+github_gold = "leapfrog_pulse.github.gold:main"
 
 [build-system]
 requires = ["hatchling"]
