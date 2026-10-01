@@ -1,0 +1,957 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DevPulse — Engineering Intelligence</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #f0f2f5;
+    color: #1a2332;
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+  }
+
+  /* ── SIDEBAR ── */
+  .sidebar {
+    width: 220px;
+    min-width: 220px;
+    background: #0f1c2e;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  .sidebar-logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 20px 18px 16px;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+  }
+  .logo-icon {
+    width: 32px; height: 32px;
+    background: #2563eb;
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .logo-icon svg { width: 18px; height: 18px; fill: white; }
+  .logo-text { color: #fff; font-size: 16px; font-weight: 700; letter-spacing: 0.3px; }
+
+  .sidebar-nav { flex: 1; padding: 12px 0; overflow-y: auto; }
+  .nav-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 18px;
+    color: #8fa3b1;
+    font-size: 13.5px;
+    font-weight: 500;
+    cursor: pointer;
+    border-left: 3px solid transparent;
+    transition: all 0.15s;
+    text-decoration: none;
+  }
+  .nav-item:hover { color: #e2e8f0; background: rgba(255,255,255,0.05); }
+  .nav-item.active {
+    color: #fff;
+    background: rgba(37,99,235,0.18);
+    border-left-color: #2563eb;
+  }
+  .nav-item svg { width: 16px; height: 16px; flex-shrink: 0; }
+
+  .sidebar-sources {
+    padding: 14px 18px;
+    border-top: 1px solid rgba(255,255,255,0.08);
+  }
+  .sources-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: #4a6070;
+    margin-bottom: 10px;
+    font-weight: 600;
+  }
+  .source-item {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 4px 0;
+  }
+  .source-name { font-size: 12px; color: #8fa3b1; }
+  .source-dot { width: 7px; height: 7px; border-radius: 50%; background: #10b981; }
+  .source-dot.warn { background: #f59e0b; }
+
+  .sidebar-user {
+    display: flex; align-items: center; gap: 10px;
+    padding: 14px 18px;
+    border-top: 1px solid rgba(255,255,255,0.08);
+  }
+  .user-avatar {
+    width: 34px; height: 34px; border-radius: 50%;
+    background: linear-gradient(135deg, #2563eb, #7c3aed);
+    display: flex; align-items: center; justify-content: center;
+    color: white; font-size: 13px; font-weight: 600;
+  }
+  .user-info .user-name { color: #e2e8f0; font-size: 13px; font-weight: 600; }
+  .user-info .user-role { color: #4a6070; font-size: 11px; }
+
+  /* ── MAIN ── */
+  .main {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  /* ── PAGE HEADER ── */
+  .page-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    padding: 22px 28px 18px;
+    background: white;
+    border-bottom: 1px solid #e5e7eb;
+    flex-shrink: 0;
+  }
+  .page-header h1 {
+    font-size: 20px;
+    font-weight: 700;
+    color: #0f1c2e;
+    line-height: 1.2;
+  }
+  .page-header h1 span { font-weight: 400; color: #6b7280; }
+  .page-header p { font-size: 13px; color: #6b7280; margin-top: 4px; }
+  .header-controls { display: flex; gap: 10px; align-items: center; }
+  .header-controls select {
+    padding: 7px 12px;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    background: white;
+    font-size: 13px;
+    color: #374151;
+    cursor: pointer;
+    outline: none;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    padding-right: 30px;
+  }
+
+  /* ── CONTENT AREA ── */
+  .content { padding: 20px 28px; display: flex; flex-direction: column; gap: 18px; }
+
+  /* ── KPI CARDS ── */
+  .kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 14px;
+  }
+  .kpi-card {
+    background: white;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 16px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .kpi-header { display: flex; align-items: center; gap: 8px; }
+  .kpi-icon {
+    width: 28px; height: 28px; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .kpi-label { font-size: 11.5px; color: #6b7280; font-weight: 500; }
+  .kpi-value { font-size: 26px; font-weight: 700; color: #0f1c2e; line-height: 1; }
+  .kpi-change {
+    display: flex; align-items: center; gap: 4px;
+    font-size: 12px; font-weight: 600;
+  }
+  .kpi-change.up { color: #10b981; }
+  .kpi-change.down { color: #10b981; }
+  .kpi-change.down-bad { color: #ef4444; }
+
+  /* ── SECTION GRID ROW ── */
+  .section-row { display: grid; gap: 14px; }
+  .row-2 { grid-template-columns: 1.1fr 1fr; }
+  .row-3 { grid-template-columns: 1.1fr 1fr; }
+  .row-4 { grid-template-columns: 1.1fr 0.55fr 0.55fr; }
+
+  /* ── CARD BASE ── */
+  .card {
+    background: white;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 18px 20px;
+  }
+  .card-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: #0f1c2e;
+    margin-bottom: 4px;
+  }
+  .card-subtitle { font-size: 11.5px; color: #9ca3af; margin-bottom: 16px; }
+
+  /* ── ENGINEERING HEALTH ── */
+  .health-body { display: flex; align-items: flex-start; gap: 24px; }
+  .health-gauge { display: flex; flex-direction: column; align-items: center; flex-shrink: 0; }
+  .gauge-wrap { position: relative; width: 130px; height: 130px; }
+  .gauge-wrap svg { width: 130px; height: 130px; transform: rotate(-90deg); }
+  .gauge-track { fill: none; stroke: #e5e7eb; stroke-width: 10; }
+  .gauge-fill  { fill: none; stroke: #2563eb; stroke-width: 10; stroke-linecap: round; transition: stroke-dashoffset 1s ease; }
+  .gauge-center {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+  }
+  .gauge-score { font-size: 28px; font-weight: 800; color: #0f1c2e; line-height: 1; }
+  .gauge-max   { font-size: 11px; color: #9ca3af; }
+  .gauge-label { font-size: 12px; font-weight: 600; color: #374151; margin-top: 8px; }
+  .gauge-change { font-size: 11px; color: #10b981; font-weight: 600; }
+
+  .health-metrics { flex: 1; display: flex; flex-direction: column; gap: 10px; }
+  .health-metric {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 10px;
+    background: #f9fafb;
+    border-radius: 7px;
+    border: 1px solid #f0f2f5;
+  }
+  .metric-left { display: flex; align-items: center; gap: 8px; }
+  .metric-icon { width: 26px; height: 26px; border-radius: 6px; display: flex; align-items: center; justify-content: center; }
+  .metric-name { font-size: 12.5px; color: #374151; font-weight: 500; }
+  .metric-right { display: flex; align-items: center; gap: 10px; }
+  .metric-value { font-size: 13px; font-weight: 700; color: #0f1c2e; }
+  .metric-badge {
+    font-size: 11px; font-weight: 600;
+    padding: 2px 7px; border-radius: 20px;
+  }
+  .badge-good { background: #d1fae5; color: #065f46; }
+  .badge-bad  { background: #fee2e2; color: #991b1b; }
+
+  /* ── TEAM PERFORMANCE ── */
+  .tp-table { width: 100%; border-collapse: collapse; }
+  .tp-table th {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;
+    color: #9ca3af; font-weight: 600;
+    padding: 0 8px 10px; text-align: right;
+  }
+  .tp-table th:first-child { text-align: left; }
+  .tp-table td {
+    padding: 9px 8px;
+    font-size: 13px;
+    color: #374151;
+    border-top: 1px solid #f3f4f6;
+    text-align: right;
+  }
+  .tp-table td:first-child { text-align: left; }
+  .team-badge {
+    display: inline-flex; align-items: center; gap: 7px;
+    font-weight: 600; font-size: 13px; color: #0f1c2e;
+  }
+  .team-dot { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+
+  /* ── PROJECT HEALTH ── */
+  .ph-table { width: 100%; border-collapse: collapse; }
+  .ph-table th {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;
+    color: #9ca3af; font-weight: 600;
+    padding: 0 8px 10px; text-align: right;
+  }
+  .ph-table th:first-child { text-align: left; }
+  .ph-table td {
+    padding: 9px 8px;
+    font-size: 13px;
+    color: #374151;
+    border-top: 1px solid #f3f4f6;
+    text-align: right;
+  }
+  .ph-table td:first-child { text-align: left; }
+  .proj-name {
+    display: flex; align-items: center; gap: 7px;
+    font-weight: 600; font-size: 13px;
+  }
+  .proj-dot { width: 10px; height: 10px; border-radius: 50%; }
+  .cycle-time { font-size: 13px; font-weight: 600; }
+  .cycle-time.slow { color: #ef4444; }
+  .cycle-time.ok   { color: #f59e0b; }
+  .cycle-time.fast { color: #10b981; }
+  .incident-badge {
+    display: inline-block; padding: 2px 9px;
+    border-radius: 20px; font-size: 12px; font-weight: 600;
+  }
+  .inc-high { background: #fee2e2; color: #991b1b; }
+  .inc-med  { background: #fef3c7; color: #92400e; }
+  .inc-low  { background: #d1fae5; color: #065f46; }
+
+  /* ── TIME DISTRIBUTION ── */
+  .time-body { display: flex; align-items: center; gap: 20px; }
+  .donut-wrap { position: relative; flex-shrink: 0; }
+  .donut-bg {
+    width: 140px; height: 140px; border-radius: 50%;
+    background: conic-gradient(
+      #3b82f6 0% 38%,
+      #8b5cf6 38% 54%,
+      #ef4444 54% 69%,
+      #f59e0b 69% 81%,
+      #10b981 81% 89%,
+      #d1d5db 89% 100%
+    );
+    position: relative;
+  }
+  .donut-hole {
+    position: absolute;
+    width: 88px; height: 88px;
+    background: white;
+    border-radius: 50%;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+  }
+  .donut-total { font-size: 11px; color: #6b7280; text-align: center; line-height: 1.3; }
+  .donut-total strong { font-size: 13px; font-weight: 700; color: #0f1c2e; display: block; }
+  .time-legend { display: flex; flex-direction: column; gap: 7px; flex: 1; }
+  .legend-item { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .legend-left { display: flex; align-items: center; gap: 7px; }
+  .legend-dot { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+  .legend-label { font-size: 12.5px; color: #374151; }
+  .legend-pct { font-size: 13px; font-weight: 700; color: #0f1c2e; }
+
+  /* ── RECENT ACTIVITY ── */
+  .activity-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+  .activity-tab {
+    padding: 4px 10px; border-radius: 20px; font-size: 11.5px;
+    font-weight: 500; cursor: pointer; border: 1px solid #e5e7eb;
+    background: white; color: #6b7280; transition: all 0.15s;
+  }
+  .activity-tab.active { background: #0f1c2e; color: white; border-color: #0f1c2e; }
+  .activity-tab:hover:not(.active) { background: #f9fafb; }
+
+  .activity-list { display: flex; flex-direction: column; gap: 10px; }
+  .activity-item { display: flex; align-items: flex-start; gap: 10px; }
+  .act-icon {
+    width: 30px; height: 30px; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 700; color: white; flex-shrink: 0;
+  }
+  .act-body { flex: 1; min-width: 0; }
+  .act-text { font-size: 12.5px; color: #374151; line-height: 1.4; }
+  .act-meta { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
+  .act-source { font-size: 11px; font-weight: 600; color: #6b7280; }
+  .act-time { font-size: 11px; color: #9ca3af; }
+
+  /* ── VYAGUTA INSIGHTS ── */
+  .vyaguta-list { display: flex; flex-direction: column; gap: 12px; }
+  .vy-item { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .vy-left { display: flex; align-items: center; gap: 10px; }
+  .vy-icon { width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; }
+  .vy-label { font-size: 12.5px; color: #374151; font-weight: 500; }
+  .vy-right { display: flex; align-items: center; gap: 8px; }
+  .vy-value { font-size: 18px; font-weight: 700; color: #0f1c2e; }
+  .vy-change { font-size: 12px; font-weight: 600; }
+  .vy-change.up   { color: #10b981; }
+  .vy-change.flat { color: #9ca3af; }
+
+  /* ── KEY INSIGHTS ── */
+  .insights-header {
+    display: flex; align-items: center; gap: 6px;
+    margin-bottom: 14px;
+  }
+  .insights-header svg { width: 16px; height: 16px; color: #f59e0b; }
+  .insights-list { display: flex; flex-direction: column; gap: 10px; }
+  .insight-item { display: flex; align-items: flex-start; gap: 8px; }
+  .insight-check {
+    width: 16px; height: 16px; border-radius: 50%;
+    background: #d1fae5; display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0; margin-top: 1px;
+  }
+  .insight-check svg { width: 10px; height: 10px; }
+  .insight-text { font-size: 12.5px; color: #374151; line-height: 1.45; }
+
+  /* ── SCROLLBAR ── */
+  .main::-webkit-scrollbar { width: 6px; }
+  .main::-webkit-scrollbar-track { background: transparent; }
+  .main::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 3px; }
+
+  /* ── ARROWS ── */
+  .arrow-up::before   { content: '↑ '; }
+  .arrow-down::before { content: '↓ '; }
+  .arrow-flat::before { content: '→ '; }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════ SIDEBAR ═══════════════ -->
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <div class="logo-icon">
+      <svg viewBox="0 0 24 24"><path d="M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z"/></svg>
+    </div>
+    <span class="logo-text">DevPulse</span>
+  </div>
+
+  <nav class="sidebar-nav">
+    <a class="nav-item active" href="#">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+      Overview
+    </a>
+    <a class="nav-item" href="#">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 20h20M6 20V10l6-7 6 7v10"/><path d="M10 20v-5h4v5"/></svg>
+      Projects
+    </a>
+    <a class="nav-item" href="#">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      Teams
+    </a>
+    <a class="nav-item" href="#">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+      Members
+    </a>
+    <a class="nav-item" href="#">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+      Code Activity
+    </a>
+    <a class="nav-item" href="#">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><line x1="6" y1="9" x2="6" y2="21"/></svg>
+      Pull Requests
+    </a>
+    <a class="nav-item" href="#">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
+      CI/CD
+    </a>
+    <a class="nav-item" href="#">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      Incidents
+    </a>
+    <a class="nav-item" href="#">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+      Meetings
+    </a>
+    <a class="nav-item" href="#">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+      Reports
+    </a>
+  </nav>
+
+  <div class="sidebar-sources">
+    <div class="sources-label">Data Sources</div>
+    <div class="source-item"><span class="source-name">Vyaguta</span><span class="source-dot"></span></div>
+    <div class="source-item"><span class="source-name">GitHub</span><span class="source-dot"></span></div>
+    <div class="source-item"><span class="source-name">Jira</span><span class="source-dot"></span></div>
+    <div class="source-item"><span class="source-name">CI/CD</span><span class="source-dot"></span></div>
+    <div class="source-item"><span class="source-name">Monitoring</span><span class="source-dot warn"></span></div>
+    <div class="source-item"><span class="source-name">Slack</span><span class="source-dot"></span></div>
+  </div>
+
+  <div class="sidebar-user">
+    <div class="user-avatar">RA</div>
+    <div class="user-info">
+      <div class="user-name">You</div>
+      <div class="user-role">Data Engineer</div>
+    </div>
+  </div>
+</aside>
+
+<!-- ═══════════════ MAIN ═══════════════ -->
+<main class="main">
+
+  <!-- PAGE HEADER -->
+  <div class="page-header">
+    <div>
+      <h1>Engineering Intelligence <span>(After Vyaguta Integration)</span></h1>
+      <p>Unified view of code, work, teams and people — powered by Vyaguta + external tools</p>
+    </div>
+    <div class="header-controls">
+      <select>
+        <option>Last 30 days</option>
+        <option>Last 7 days</option>
+        <option>Last 90 days</option>
+      </select>
+      <select>
+        <option>All Teams</option>
+        <option>Payments</option>
+        <option>Mobile</option>
+        <option>Analytics</option>
+        <option>Platform</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="content">
+
+    <!-- KPI CARDS -->
+    <div class="kpi-grid">
+      <div class="kpi-card">
+        <div class="kpi-header">
+          <div class="kpi-icon" style="background:#eff6ff">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2.5"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          </div>
+          <span class="kpi-label">Total Commits</span>
+        </div>
+        <div class="kpi-value">—</div>
+        <div class="kpi-change up"></div>
+      </div>
+
+      <div class="kpi-card">
+        <div class="kpi-header">
+          <div class="kpi-icon" style="background:#f0fdf4">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><line x1="6" y1="9" x2="6" y2="21"/></svg>
+          </div>
+          <span class="kpi-label">Pull Requests</span>
+        </div>
+        <div class="kpi-value">—</div>
+        <div class="kpi-change up"></div>
+      </div>
+
+      <div class="kpi-card">
+        <div class="kpi-header">
+          <div class="kpi-icon" style="background:#fff7ed">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2.5"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+          </div>
+          <span class="kpi-label">Deployment Frequency</span>
+        </div>
+        <div class="kpi-value" style="font-size:22px">—</div>
+        <div class="kpi-change up"></div>
+      </div>
+
+      <div class="kpi-card">
+        <div class="kpi-header">
+          <div class="kpi-icon" style="background:#fef2f2">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+          </div>
+          <span class="kpi-label">CI Failure Rate</span>
+        </div>
+        <div class="kpi-value">—</div>
+        <div class="kpi-change down"></div>
+      </div>
+
+      <div class="kpi-card">
+        <div class="kpi-header">
+          <div class="kpi-icon" style="background:#f5f3ff">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          </div>
+          <span class="kpi-label">Avg. Incident Recovery</span>
+        </div>
+        <div class="kpi-value" style="font-size:22px">—</div>
+        <div class="kpi-change down"></div>
+      </div>
+    </div>
+
+    <!-- ROW 2: ENGINEERING HEALTH + TEAM PERFORMANCE -->
+    <div class="section-row row-2">
+
+      <!-- Engineering Health -->
+      <div class="card">
+        <div class="card-title">Engineering Health</div>
+        <div class="card-subtitle" style="margin-bottom:14px"></div>
+        <div class="health-body">
+          <div class="health-gauge">
+            <div class="gauge-wrap">
+              <svg viewBox="0 0 130 130">
+                <circle class="gauge-track" cx="65" cy="65" r="52"/>
+                <circle class="gauge-fill" cx="65" cy="65" r="52"
+                  stroke-dasharray="326.7"
+                  stroke-dashoffset="326.7"/>
+              </svg>
+              <div class="gauge-center">
+                <span class="gauge-score">—</span>
+                <span class="gauge-max">/100</span>
+              </div>
+            </div>
+            <div class="gauge-label">Overall Health</div>
+            <div class="gauge-change"></div>
+          </div>
+          <div class="health-metrics"></div>
+        </div>
+      </div>
+
+      <!-- Team Performance -->
+      <div class="card">
+        <div class="card-title">Team Performance</div>
+        <div style="margin-bottom:14px"></div>
+        <table class="tp-table">
+          <thead>
+            <tr>
+              <th>Team</th>
+              <th>Members</th>
+              <th>Open Tickets</th>
+              <th>PRs (30d)</th>
+              <th>Incidents</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ROW 3: PROJECT HEALTH + TIME DISTRIBUTION -->
+    <div class="section-row row-3">
+
+      <!-- Project Health -->
+      <div class="card">
+        <div class="card-title">Project Health</div>
+        <div class="card-subtitle">Key metrics across all projects</div>
+        <table class="ph-table">
+          <thead>
+            <tr>
+              <th>Project</th>
+              <th>Team</th>
+              <th>PR Cycle Time</th>
+              <th>Deployment Freq.</th>
+              <th>Incidents</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <!-- Where Engineering Time Goes -->
+      <div class="card">
+        <div class="card-title">Where Engineering Time Goes</div>
+        <div style="margin-bottom:16px"></div>
+        <div class="time-body">
+          <div class="donut-wrap">
+            <div class="donut-bg">
+              <div class="donut-hole">
+                <div class="donut-total">
+                  <strong>—</strong>
+                  Total Time<br>Last 30 days
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="time-legend"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ROW 4: RECENT ACTIVITY + VYAGUTA INSIGHTS + KEY INSIGHTS -->
+    <div class="section-row row-4">
+
+      <!-- Recent Activity -->
+      <div class="card">
+        <div class="card-title">Recent Activity <span style="color:#9ca3af;font-weight:400;font-size:12px">(Cross-Platform)</span></div>
+        <div style="margin-bottom:12px"></div>
+        <div class="activity-tabs">
+          <span class="activity-tab active">All</span>
+          <span class="activity-tab">GitHub</span>
+          <span class="activity-tab">Jira</span>
+          <span class="activity-tab">CI/CD</span>
+          <span class="activity-tab">Monitoring</span>
+          <span class="activity-tab">Slack</span>
+          <span class="activity-tab">Vyaguta</span>
+        </div>
+        <div class="activity-list"></div>
+      </div>
+
+      <!-- Vyaguta Insights -->
+      <div class="card">
+        <div class="card-title" style="display:flex;align-items:center;gap:6px">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" stroke-width="2.5"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+          Vyaguta Insights
+        </div>
+        <div style="margin-bottom:16px"></div>
+        <div class="vyaguta-list">
+          <div class="vy-item">
+            <div class="vy-left">
+              <div class="vy-icon" style="background:#eff6ff">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2"><path d="M2 20h20M6 20V10l6-7 6 7v10"/></svg>
+              </div>
+              <span class="vy-label">Active Projects</span>
+            </div>
+            <div class="vy-right">
+              <span class="vy-value">—</span>
+              <span class="vy-change up"></span>
+            </div>
+          </div>
+          <div class="vy-item">
+            <div class="vy-left">
+              <div class="vy-icon" style="background:#f0fdf4">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+              </div>
+              <span class="vy-label">Total Team Members</span>
+            </div>
+            <div class="vy-right">
+              <span class="vy-value">—</span>
+              <span class="vy-change flat"></span>
+            </div>
+          </div>
+          <div class="vy-item">
+            <div class="vy-left">
+              <div class="vy-icon" style="background:#fff7ed">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+              </div>
+              <span class="vy-label">Attendance (avg.)</span>
+            </div>
+            <div class="vy-right">
+              <span class="vy-value">—</span>
+              <span class="vy-change up"></span>
+            </div>
+          </div>
+          <div class="vy-item">
+            <div class="vy-left">
+              <div class="vy-icon" style="background:#f5f3ff">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+              </div>
+              <span class="vy-label">Recent Feedback</span>
+            </div>
+            <div class="vy-right">
+              <span class="vy-value">—</span>
+              <span class="vy-change up"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Key Insights -->
+      <div class="card">
+        <div class="insights-header">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2" style="width:16px;height:16px"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          <span class="card-title" style="margin-bottom:0">Key Insights</span>
+        </div>
+        <div class="insights-list"></div>
+      </div>
+
+    </div><!-- /row-4 -->
+  </div><!-- /content -->
+</main>
+
+<script>
+  // ─── Tab filter ────────────────────────────────────────────────────────────
+  document.querySelectorAll('.activity-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.activity-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      const filter = tab.textContent.trim();
+      document.querySelectorAll('.activity-item').forEach(item => {
+        item.style.display = (filter === 'All' || item.dataset.source === filter) ? '' : 'none';
+      });
+    });
+  });
+
+  // ─── Helpers ───────────────────────────────────────────────────────────────
+  const TEAM_COLORS = {
+    'Payments': '#f59e0b', 'Core Platform': '#3b82f6', 'Mobile App': '#3b82f6',
+    'Analytics': '#8b5cf6', 'Internal Tools': '#10b981', 'Platform': '#06b6d4',
+  };
+  const COLOR_PALETTE = ['#f59e0b','#3b82f6','#8b5cf6','#10b981','#06b6d4','#ef4444'];
+  function teamColor(name) {
+    if (TEAM_COLORS[name]) return TEAM_COLORS[name];
+    let h = 0;
+    for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) % COLOR_PALETTE.length;
+    return COLOR_PALETTE[h];
+  }
+  function incClass(n) { return n >= 6 ? 'inc-high' : n >= 3 ? 'inc-med' : 'inc-low'; }
+  function cycleClass(h) {
+    const hrs = parseInt(h);
+    return isNaN(hrs) ? 'ok' : hrs <= 15 ? 'fast' : hrs <= 20 ? 'ok' : 'slow';
+  }
+  function changeArrow(up) { return up === true ? '↑' : up === false ? '↓' : '→'; }
+  function escHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  // ─── Render functions ──────────────────────────────────────────────────────
+
+  function renderKPIs(d) {
+    const cards = document.querySelectorAll('.kpi-card');
+    const map = [
+      d.totalCommits,
+      d.pullRequests,
+      d.deployFrequency,
+      d.ciFailureRate,
+      d.incidentRecovery,
+    ];
+    map.forEach((data, i) => {
+      if (!cards[i] || !data) return;
+      const valEl = cards[i].querySelector('.kpi-value');
+      const chgEl = cards[i].querySelector('.kpi-change');
+      if (valEl) valEl.textContent = data.value;
+      if (chgEl && data.change != null) {
+        chgEl.className = `kpi-change ${data.up ? 'up' : 'down'}`;
+        chgEl.innerHTML = `<span class="${data.up ? 'arrow-up' : 'arrow-down'}"></span>${data.change}% vs last period`;
+      }
+    });
+  }
+
+  function renderHealth(d) {
+    const scoreEl = document.querySelector('.gauge-score');
+    const chgEl   = document.querySelector('.gauge-change');
+    const fillEl  = document.querySelector('.gauge-fill');
+    const metricsEl = document.querySelector('.health-metrics');
+
+    if (scoreEl) scoreEl.textContent = d.score;
+    if (chgEl)   chgEl.textContent   = `↑ ${d.change}% vs last 30 days`;
+
+    if (fillEl) {
+      const circumference = 326.7;
+      const offset = circumference * (1 - d.score / 100);
+      fillEl.style.transition = 'none';
+      fillEl.style.strokeDashoffset = circumference;
+      setTimeout(() => {
+        fillEl.style.transition = 'stroke-dashoffset 0.8s ease';
+        fillEl.style.strokeDashoffset = offset;
+      }, 100);
+    }
+
+    if (metricsEl && d.metrics) {
+      const iconHtml = [
+        `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><line x1="6" y1="9" x2="6" y2="21"/></svg>`,
+        `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>`,
+        `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>`,
+        `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`,
+        `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>`,
+      ];
+      const iconBg = ['#eff6ff','#fff7ed','#fef2f2','#f5f3ff','#f0fdf4'];
+      metricsEl.innerHTML = d.metrics.map((m, i) => {
+        const arrow  = m.goodDown ? (m.change > 0 ? '↓' : '↑') : (m.change > 0 ? '↑' : '↓');
+        const isGood = true;
+        return `<div class="health-metric">
+          <div class="metric-left">
+            <div class="metric-icon" style="background:${iconBg[i] || '#f0f0f0'}">${iconHtml[i] || ''}</div>
+            <span class="metric-name">${escHtml(m.label)}</span>
+          </div>
+          <div class="metric-right">
+            <span class="metric-value">${escHtml(m.value)}</span>
+            <span class="metric-badge ${isGood ? 'badge-good' : 'badge-bad'}">${arrow} ${m.change}%</span>
+          </div>
+        </div>`;
+      }).join('');
+    }
+  }
+
+  function renderTeams(teams) {
+    const tbody = document.querySelector('.tp-table tbody');
+    if (!tbody) return;
+    tbody.innerHTML = teams.map(t => {
+      const color = t.color || teamColor(t.name);
+      return `<tr>
+        <td><span class="team-badge"><span class="team-dot" style="background:${color}"></span>${escHtml(t.name)}</span></td>
+        <td>${t.members}</td>
+        <td>${t.tickets}</td>
+        <td>${t.prs}</td>
+        <td><span class="incident-badge ${incClass(t.incidents)}">${t.incidents}</span></td>
+      </tr>`;
+    }).join('');
+  }
+
+  function renderProjects(projects) {
+    const tbody = document.querySelector('.ph-table tbody');
+    if (!tbody) return;
+    tbody.innerHTML = projects.map(p => {
+      const color = p.color || teamColor(p.team);
+      const ct    = p.cycleTime || 'N/A';
+      const cls   = cycleClass(ct);
+      return `<tr>
+        <td><span class="proj-name"><span class="proj-dot" style="background:${color}"></span>${escHtml(p.name)}</span></td>
+        <td style="color:#6b7280">${escHtml(p.team)}</td>
+        <td><span class="cycle-time ${cls}">${escHtml(ct)}</span></td>
+        <td>${escHtml(p.deployFreq)}</td>
+        <td><span class="incident-badge ${incClass(p.incidents)}">${p.incidents}</span></td>
+      </tr>`;
+    }).join('');
+  }
+
+  function renderTimeDistribution(d) {
+    const holeEl   = document.querySelector('.donut-hole strong');
+    const donutEl  = document.querySelector('.donut-bg');
+    const legendEl = document.querySelector('.time-legend');
+    if (holeEl) holeEl.textContent = `~${d.total}`;
+    if (donutEl && d.breakdown) {
+      let pos = 0;
+      const stops = d.breakdown.map(b => {
+        const s = `${b.color} ${pos}% ${pos + b.pct}%`;
+        pos += b.pct;
+        return s;
+      }).join(', ');
+      donutEl.style.background = `conic-gradient(${stops})`;
+    }
+    if (legendEl && d.breakdown) {
+      legendEl.innerHTML = d.breakdown.map(b =>
+        `<div class="legend-item">
+          <div class="legend-left"><div class="legend-dot" style="background:${b.color}"></div><span class="legend-label">${escHtml(b.label)}</span></div>
+          <span class="legend-pct">${b.pct}%</span>
+        </div>`
+      ).join('');
+    }
+  }
+
+  function renderActivity(items) {
+    const listEl = document.querySelector('.activity-list');
+    if (!listEl) return;
+    listEl.innerHTML = items.map(a =>
+      `<div class="activity-item" data-source="${escHtml(a.source)}">
+        <div class="act-icon" style="background:${a.color}">${escHtml(a.icon)}</div>
+        <div class="act-body">
+          <div class="act-text">${escHtml(a.text)}</div>
+          <div class="act-meta"><span class="act-source">${escHtml(a.source)}</span><span class="act-time">${escHtml(a.time)}</span></div>
+        </div>
+      </div>`
+    ).join('');
+  }
+
+  function renderVyaguta(items) {
+    const vyItems = document.querySelectorAll('.vy-item');
+    items.forEach((item, i) => {
+      if (!vyItems[i]) return;
+      const valEl = vyItems[i].querySelector('.vy-value');
+      const chgEl = vyItems[i].querySelector('.vy-change');
+      if (valEl) valEl.textContent = item.value;
+      if (chgEl) {
+        const cls = item.up === true ? 'up' : 'flat';
+        const arr = changeArrow(item.up);
+        chgEl.className = `vy-change ${cls}`;
+        chgEl.textContent = `${arr} ${item.change}`;
+      }
+    });
+  }
+
+  function renderInsights(insights) {
+    const listEl = document.querySelector('.insights-list');
+    if (!listEl) return;
+    const checkSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>`;
+    listEl.innerHTML = insights.map(text =>
+      `<div class="insight-item">
+        <div class="insight-check">${checkSvg}</div>
+        <span class="insight-text">${escHtml(text)}</span>
+      </div>`
+    ).join('');
+  }
+
+  // ─── Bootstrap ─────────────────────────────────────────────────────────────
+
+  async function initDashboard() {
+    try {
+      const [kpis, health, teams, projects, timeDist, activity, vyaguta, insights] =
+        await Promise.all([
+          fetch('/api/kpis').then(r => r.json()),
+          fetch('/api/health').then(r => r.json()),
+          fetch('/api/teams').then(r => r.json()),
+          fetch('/api/projects').then(r => r.json()),
+          fetch('/api/time-distribution').then(r => r.json()),
+          fetch('/api/activity').then(r => r.json()),
+          fetch('/api/vyaguta').then(r => r.json()),
+          fetch('/api/insights').then(r => r.json()),
+        ]);
+
+      renderKPIs(kpis);
+      renderHealth(health);
+      renderTeams(teams);
+      renderProjects(projects);
+      renderTimeDistribution(timeDist);
+      renderActivity(activity);
+      renderVyaguta(vyaguta);
+      renderInsights(insights);
+    } catch (err) {
+      console.error('Dashboard init error:', err);
+    }
+  }
+
+  window.addEventListener('load', initDashboard);
+</script>
+</body>
+</html>
