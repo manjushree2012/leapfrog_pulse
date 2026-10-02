@@ -3,28 +3,32 @@
 # Runs every day at midnight Nepal Standard Time (NST = UTC+5:45).
 # UTC equivalent: 18:15 UTC (i.e. 00:00 NST the following calendar day).
 #
-# Task graph:
+# Full task graph:
+#
 #   daily_ingest_setup
-#       └── vyaguta_bronze          (depends on daily_ingest_setup)
-#               ├── project_github_bronze   (depends on vyaguta_bronze)
-#               └── jira_bronze             (depends on vyaguta_bronze)
+#       └── vyaguta_bronze
+#               ├── vyaguta_silver → vyaguta_gold ─────────────────────────────────────────────┐
+#               ├── project_github_bronze → project_github_silver → project_github_gold ───────┤→ dashboard_gold
+#               └── jira_bronze           → jira_silver           → jira_gold ─────────────────┘
 #
-# Task 1 — vyaguta_bronze:
-#   Calls the Vyaguta API (mock) to extract all projects along with their
-#   GitHub repository URLs, Jira project keys, and team membership. Each
-#   project maps to one or more repositories. Results are upserted into
-#   vyaguta_bronze_projects.
+# Bronze layer:
+#   vyaguta_bronze          — fetches all active projects from Vyaguta (mock), writes vyaguta_bronze_projects
+#   project_github_bronze   — per-project GitHub commits for the day, writes github_bronze_project_commits
+#   jira_bronze             — per-project JIRA issues for the day, writes jira_bronze_issues
 #
-# Task 2a — project_github_bronze:
-#   Reads the project-repository list from vyaguta_bronze_projects, then
-#   fetches the past 24 hours of commits from the GitHub API (mock) for
-#   each repository. Results are upserted into github_bronze_project_commits,
-#   enriched with project_id and project_name from Vyaguta.
+# Silver layer (validated + normalized):
+#   vyaguta_silver          — writes vyaguta_silver_projects
+#   project_github_silver   — writes github_silver_project_commits
+#   jira_silver             — writes jira_silver_issues
 #
-# Task 2b — jira_bronze:
-#   Reads the project list from vyaguta_bronze_projects, then fetches JIRA
-#   issues updated in the past 24 hours (mock) for each project key. Results
-#   are upserted into jira_bronze_issues, enriched with project context.
+# Gold layer (aggregated analytics):
+#   vyaguta_gold            — writes vyaguta_gold_project_catalogue (active projects only)
+#   project_github_gold     — writes github_gold_project_daily_metrics (per developer/repo/project)
+#   jira_gold               — writes jira_gold_project_daily_metrics (issue counts by status/type)
+#
+# Dashboard mart:
+#   dashboard_gold          — writes dashboard_gold_project_summary, dashboard_gold_kpis,
+#                             dashboard_gold_recent_activity (feeds /api/* endpoints)
 
 resources:
   jobs:
@@ -35,8 +39,6 @@ resources:
         # Midnight Nepal Standard Time (NST = UTC+5:45) = 18:15 UTC
         quartz_cron_expression: "0 15 18 * * ?"
         timezone_id: UTC
-        # Equivalent local time: 00:00 Asia/Kathmandu (next calendar day)
-        # NST = UTC+5:45 → 00:00 NST = 18:15 UTC of the previous day
 
       parameters:
         - name: catalog
@@ -48,6 +50,7 @@ resources:
           default: "yesterday"
 
       tasks:
+        # ── Setup ──────────────────────────────────────────────────────────────
         - task_key: daily_ingest_setup
           python_wheel_task:
             package_name: leapfrog_pulse
@@ -57,6 +60,7 @@ resources:
               schema: "{{job.parameters.schema}}"
           environment_key: default
 
+        # ── Bronze ─────────────────────────────────────────────────────────────
         - task_key: vyaguta_bronze
           depends_on:
             - task_key: daily_ingest_setup
@@ -86,6 +90,93 @@ resources:
           python_wheel_task:
             package_name: leapfrog_pulse
             entry_point: jira_bronze
+            named_parameters:
+              catalog: "{{job.parameters.catalog}}"
+              schema: "{{job.parameters.schema}}"
+              processing_date: "{{job.parameters.processing_date}}"
+          environment_key: default
+
+        # ── Silver ─────────────────────────────────────────────────────────────
+        - task_key: vyaguta_silver
+          depends_on:
+            - task_key: vyaguta_bronze
+          python_wheel_task:
+            package_name: leapfrog_pulse
+            entry_point: vyaguta_silver
+            named_parameters:
+              catalog: "{{job.parameters.catalog}}"
+              schema: "{{job.parameters.schema}}"
+          environment_key: default
+
+        - task_key: project_github_silver
+          depends_on:
+            - task_key: project_github_bronze
+          python_wheel_task:
+            package_name: leapfrog_pulse
+            entry_point: project_github_silver
+            named_parameters:
+              catalog: "{{job.parameters.catalog}}"
+              schema: "{{job.parameters.schema}}"
+              processing_date: "{{job.parameters.processing_date}}"
+          environment_key: default
+
+        - task_key: jira_silver
+          depends_on:
+            - task_key: jira_bronze
+          python_wheel_task:
+            package_name: leapfrog_pulse
+            entry_point: jira_silver
+            named_parameters:
+              catalog: "{{job.parameters.catalog}}"
+              schema: "{{job.parameters.schema}}"
+              processing_date: "{{job.parameters.processing_date}}"
+          environment_key: default
+
+        # ── Gold ───────────────────────────────────────────────────────────────
+        - task_key: vyaguta_gold
+          depends_on:
+            - task_key: vyaguta_silver
+          python_wheel_task:
+            package_name: leapfrog_pulse
+            entry_point: vyaguta_gold
+            named_parameters:
+              catalog: "{{job.parameters.catalog}}"
+              schema: "{{job.parameters.schema}}"
+          environment_key: default
+
+        - task_key: project_github_gold
+          depends_on:
+            - task_key: project_github_silver
+          python_wheel_task:
+            package_name: leapfrog_pulse
+            entry_point: project_github_gold
+            named_parameters:
+              catalog: "{{job.parameters.catalog}}"
+              schema: "{{job.parameters.schema}}"
+              processing_date: "{{job.parameters.processing_date}}"
+          environment_key: default
+
+        - task_key: jira_gold
+          depends_on:
+            - task_key: jira_silver
+          python_wheel_task:
+            package_name: leapfrog_pulse
+            entry_point: jira_gold
+            named_parameters:
+              catalog: "{{job.parameters.catalog}}"
+              schema: "{{job.parameters.schema}}"
+              processing_date: "{{job.parameters.processing_date}}"
+          environment_key: default
+
+        # ── Dashboard Mart ─────────────────────────────────────────────────────
+        - task_key: dashboard_gold
+          depends_on:
+            - task_key: vyaguta_gold
+            - task_key: project_github_gold
+            - task_key: jira_gold
+          python_wheel_task:
+            package_name: leapfrog_pulse
+            entry_point: dashboard_gold
             named_parameters:
               catalog: "{{job.parameters.catalog}}"
               schema: "{{job.parameters.schema}}"

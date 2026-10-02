@@ -102,7 +102,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Vyaguta Silver processing")
     parser.add_argument("--catalog", required=True)
     parser.add_argument("--schema", required=True)
-    args = parser.parse_args()
+    args = parser.parse_known_args()[0]
 
     from databricks.connect import DatabricksSession
 

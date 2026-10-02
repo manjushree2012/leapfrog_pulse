@@ -21,8 +21,7 @@ from pyspark.sql.types import TimestampType
 def transform_gold(df: DataFrame) -> DataFrame:
     """Project the Silver data into the analytics-ready catalogue shape."""
     return (
-        df
-        .filter(F.col("status") == "active")
+        df.filter(F.col("status") == "active")
         .select(
             "project_id",
             "project_name",
@@ -96,7 +95,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Vyaguta Gold processing")
     parser.add_argument("--catalog", required=True)
     parser.add_argument("--schema", required=True)
-    args = parser.parse_args()
+    args = parser.parse_known_args()[0]
 
     from databricks.connect import DatabricksSession
 

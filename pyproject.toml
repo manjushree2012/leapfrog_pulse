@@ -29,7 +29,12 @@ vyaguta_bronze = "leapfrog_pulse.vyaguta.bronze:main"
 vyaguta_silver = "leapfrog_pulse.vyaguta.silver:main"
 vyaguta_gold = "leapfrog_pulse.vyaguta.gold:main"
 project_github_bronze = "leapfrog_pulse.github.project_bronze:main"
+project_github_silver = "leapfrog_pulse.github.project_silver:main"
+project_github_gold = "leapfrog_pulse.github.project_gold:main"
 jira_bronze = "leapfrog_pulse.jira.bronze:main"
+jira_silver = "leapfrog_pulse.jira.silver:main"
+jira_gold = "leapfrog_pulse.jira.gold:main"
+dashboard_gold = "leapfrog_pulse.gold.dashboard:main"
 daily_ingest_setup = "leapfrog_pulse.daily_setup:main"
 
 [build-system]

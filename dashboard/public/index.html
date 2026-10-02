@@ -275,10 +275,6 @@
     font-weight: 600; font-size: 13px;
   }
   .proj-dot { width: 10px; height: 10px; border-radius: 50%; }
-  .cycle-time { font-size: 13px; font-weight: 600; }
-  .cycle-time.slow { color: #ef4444; }
-  .cycle-time.ok   { color: #f59e0b; }
-  .cycle-time.fast { color: #10b981; }
   .incident-badge {
     display: inline-block; padding: 2px 9px;
     border-radius: 20px; font-size: 12px; font-weight: 600;
@@ -286,6 +282,38 @@
   .inc-high { background: #fee2e2; color: #991b1b; }
   .inc-med  { background: #fef3c7; color: #92400e; }
   .inc-low  { background: #d1fae5; color: #065f46; }
+
+  /* health score badge */
+  .health-badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 38px; height: 22px; border-radius: 11px;
+    font-size: 11.5px; font-weight: 700;
+  }
+  .hb-good  { background: #d1fae5; color: #065f46; }
+  .hb-ok    { background: #fef3c7; color: #92400e; }
+  .hb-bad   { background: #fee2e2; color: #991b1b; }
+
+  /* ── SPRINT VELOCITY ── */
+  .sv-table { width: 100%; border-collapse: collapse; }
+  .sv-table th {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;
+    color: #9ca3af; font-weight: 600;
+    padding: 0 8px 10px; text-align: right;
+  }
+  .sv-table th:first-child { text-align: left; }
+  .sv-table td {
+    padding: 9px 8px;
+    font-size: 13px; color: #374151;
+    border-top: 1px solid #f3f4f6;
+    text-align: right;
+  }
+  .sv-table td:first-child { text-align: left; }
+  .churn-bar {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 12px;
+  }
+  .churn-add { color: #10b981; font-weight: 600; }
+  .churn-del { color: #ef4444; font-weight: 600; }
 
   /* ── TIME DISTRIBUTION ── */
   .time-body { display: flex; align-items: center; gap: 20px; }
@@ -577,10 +605,10 @@
           <thead>
             <tr>
               <th>Team</th>
-              <th>Members</th>
-              <th>Open Tickets</th>
-              <th>PRs (30d)</th>
-              <th>Incidents</th>
+              <th>Active Devs</th>
+              <th>Open Issues</th>
+              <th>Commits (30d)</th>
+              <th>In Progress</th>
             </tr>
           </thead>
           <tbody></tbody>
@@ -600,9 +628,9 @@
             <tr>
               <th>Project</th>
               <th>Team</th>
-              <th>PR Cycle Time</th>
-              <th>Deployment Freq.</th>
-              <th>Incidents</th>
+              <th>Health Score</th>
+              <th>Commits (30d)</th>
+              <th>Bugs Open</th>
             </tr>
           </thead>
           <tbody></tbody>
@@ -626,6 +654,46 @@
           </div>
           <div class="time-legend"></div>
         </div>
+      </div>
+    </div>
+
+    <!-- ROW 3.5: SPRINT VELOCITY + CODE CHURN -->
+    <div class="section-row row-2">
+
+      <!-- Sprint Velocity -->
+      <div class="card">
+        <div class="card-title">Sprint Velocity</div>
+        <div class="card-subtitle">Done issues &amp; story points in the last 30 days per project</div>
+        <table class="sv-table">
+          <thead>
+            <tr>
+              <th>Project</th>
+              <th>Sprint</th>
+              <th>Done (30d)</th>
+              <th>In Progress</th>
+              <th>Avg Story Pts</th>
+            </tr>
+          </thead>
+          <tbody id="velocity-tbody"></tbody>
+        </table>
+      </div>
+
+      <!-- Code Churn -->
+      <div class="card">
+        <div class="card-title">Code Churn</div>
+        <div class="card-subtitle">Lines added &amp; removed per project in the last 30 days</div>
+        <table class="sv-table">
+          <thead>
+            <tr>
+              <th>Project</th>
+              <th>Team</th>
+              <th>Lines Added</th>
+              <th>Lines Removed</th>
+              <th>Health</th>
+            </tr>
+          </thead>
+          <tbody id="churn-tbody"></tbody>
+        </table>
       </div>
     </div>
 
@@ -733,20 +801,22 @@
   const TEAM_COLORS = {
     'Payments': '#f59e0b', 'Core Platform': '#3b82f6', 'Mobile App': '#3b82f6',
     'Analytics': '#8b5cf6', 'Internal Tools': '#10b981', 'Platform': '#06b6d4',
+    'HealthTech': '#3b82f6', 'FinTech': '#f59e0b', 'EdTech': '#8b5cf6',
+    'Enterprise': '#10b981', 'Engineering Intelligence': '#06b6d4',
   };
   const COLOR_PALETTE = ['#f59e0b','#3b82f6','#8b5cf6','#10b981','#06b6d4','#ef4444'];
   function teamColor(name) {
     if (TEAM_COLORS[name]) return TEAM_COLORS[name];
     let h = 0;
-    for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) % COLOR_PALETTE.length;
+    for (let i = 0; i < (name||'').length; i++) h = (h * 31 + name.charCodeAt(i)) % COLOR_PALETTE.length;
     return COLOR_PALETTE[h];
   }
   function incClass(n) { return n >= 6 ? 'inc-high' : n >= 3 ? 'inc-med' : 'inc-low'; }
-  function cycleClass(h) {
-    const hrs = parseInt(h);
-    return isNaN(hrs) ? 'ok' : hrs <= 15 ? 'fast' : hrs <= 20 ? 'ok' : 'slow';
+  function healthBadgeClass(score) {
+    if (score == null) return '';
+    return score >= 70 ? 'hb-good' : score >= 40 ? 'hb-ok' : 'hb-bad';
   }
-  function changeArrow(up) { return up === true ? '↑' : up === false ? '↓' : '→'; }
+  function fmt(n) { return n == null ? '—' : Number(n).toLocaleString(); }
   function escHtml(s) {
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   }
@@ -827,10 +897,10 @@
       const color = t.color || teamColor(t.name);
       return `<tr>
         <td><span class="team-badge"><span class="team-dot" style="background:${color}"></span>${escHtml(t.name)}</span></td>
-        <td>${t.members}</td>
-        <td>${t.tickets}</td>
-        <td>${t.prs}</td>
-        <td><span class="incident-badge ${incClass(t.incidents)}">${t.incidents}</span></td>
+        <td>${fmt(t.activeDevelopers != null ? t.activeDevelopers : t.members)}</td>
+        <td>${fmt(t.openIssues != null ? t.openIssues : t.tickets)}</td>
+        <td>${fmt(t.commits30d != null ? t.commits30d : t.prs)}</td>
+        <td>${fmt(t.inProgress != null ? t.inProgress : t.incidents)}</td>
       </tr>`;
     }).join('');
   }
@@ -840,14 +910,14 @@
     if (!tbody) return;
     tbody.innerHTML = projects.map(p => {
       const color = p.color || teamColor(p.team);
-      const ct    = p.cycleTime || 'N/A';
-      const cls   = cycleClass(ct);
+      const hs    = p.healthScore;
+      const hbCls = healthBadgeClass(hs);
       return `<tr>
         <td><span class="proj-name"><span class="proj-dot" style="background:${color}"></span>${escHtml(p.name)}</span></td>
         <td style="color:#6b7280">${escHtml(p.team)}</td>
-        <td><span class="cycle-time ${cls}">${escHtml(ct)}</span></td>
-        <td>${escHtml(p.deployFreq)}</td>
-        <td><span class="incident-badge ${incClass(p.incidents)}">${p.incidents}</span></td>
+        <td>${hs != null ? `<span class="health-badge ${hbCls}">${hs}</span>` : '—'}</td>
+        <td>${fmt(p.commits30d)}</td>
+        <td><span class="incident-badge ${incClass(p.bugs || 0)}">${p.bugs != null ? p.bugs : '—'}</span></td>
       </tr>`;
     }).join('');
   }
@@ -899,6 +969,42 @@
     });
   }
 
+  function renderVelocity(items) {
+    const tbody = document.getElementById('velocity-tbody');
+    if (!tbody) return;
+    if (!items || items.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="5" style="color:#9ca3af;text-align:center;padding:16px">No data — run the pipeline first</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = items.map(v => `<tr>
+      <td style="font-weight:600;color:#0f1c2e">${escHtml(v.projectName)}</td>
+      <td style="color:#6b7280;font-size:12px">${escHtml(v.sprintName)}</td>
+      <td style="color:#10b981;font-weight:700">${fmt(v.doneIssues30d)}</td>
+      <td style="color:#f59e0b;font-weight:600">${fmt(v.inProgress)}</td>
+      <td>${v.avgStoryPoints != null ? v.avgStoryPoints : '—'}</td>
+    </tr>`).join('');
+  }
+
+  function renderChurn(items) {
+    const tbody = document.getElementById('churn-tbody');
+    if (!tbody) return;
+    if (!items || items.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="5" style="color:#9ca3af;text-align:center;padding:16px">No data — run the pipeline first</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = items.map(v => {
+      const hs    = v.healthScore;
+      const hbCls = healthBadgeClass(hs);
+      return `<tr>
+        <td style="font-weight:600;color:#0f1c2e">${escHtml(v.projectName)}</td>
+        <td style="color:#6b7280">${escHtml(v.team)}</td>
+        <td><span class="churn-add">+${fmt(v.linesAdded)}</span></td>
+        <td><span class="churn-del">-${fmt(v.linesRemoved)}</span></td>
+        <td>${hs != null ? `<span class="health-badge ${hbCls}">${hs}</span>` : '—'}</td>
+      </tr>`;
+    }).join('');
+  }
+
   function renderInsights(insights) {
     const listEl = document.querySelector('.insights-list');
     if (!listEl) return;
@@ -915,12 +1021,13 @@
 
   async function initDashboard() {
     try {
-      const [kpis, health, teams, projects, timeDist, activity, vyaguta, insights] =
+      const [kpis, health, teams, projects, velocity, timeDist, activity, vyaguta, insights] =
         await Promise.all([
           fetch('/api/kpis').then(r => r.json()),
           fetch('/api/health').then(r => r.json()),
           fetch('/api/teams').then(r => r.json()),
           fetch('/api/projects').then(r => r.json()),
+          fetch('/api/velocity').then(r => r.json()),
           fetch('/api/time-distribution').then(r => r.json()),
           fetch('/api/activity').then(r => r.json()),
           fetch('/api/vyaguta').then(r => r.json()),
@@ -931,6 +1038,8 @@
       renderHealth(health);
       renderTeams(teams);
       renderProjects(projects);
+      renderVelocity(velocity);
+      renderChurn(velocity);
       renderTimeDistribution(timeDist);
       renderActivity(activity);
       renderVyaguta(vyaguta);

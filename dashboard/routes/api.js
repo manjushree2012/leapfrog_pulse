@@ -1,98 +1,336 @@
 const { Router } = require("express");
 const router = Router();
 const vy = require("../data/vyaguta");
+const db = require("../data/databricks");
 
-// Shapes here mirror what the render functions in public/index.html expect.
-// Replace stub values with real Databricks / Gold-layer queries when ready.
+// ─── helpers ────────────────────────────────────────────────────────────────
 
-router.get("/kpis", (_req, res) => {
+/** Run a DB query; return null on failure (dashboard falls back to stubs). */
+async function dbQuery(sql, cacheKey) {
+  try {
+    return await db.query(sql, cacheKey);
+  } catch (err) {
+    console.warn(`[gold] query failed (${cacheKey}):`, err.message);
+    return null;
+  }
+}
+
+function num(v) { return v == null ? null : Number(v); }
+function fmt(v) { return v == null ? "—" : Number(v).toLocaleString(); }
+
+const TEAM_COLORS = {
+  HealthTech:               "#3b82f6",
+  FinTech:                  "#f59e0b",
+  EdTech:                   "#8b5cf6",
+  Enterprise:               "#10b981",
+  "Engineering Intelligence": "#06b6d4",
+};
+function teamColor(name) {
+  if (TEAM_COLORS[name]) return TEAM_COLORS[name];
+  const palette = ["#f59e0b","#3b82f6","#8b5cf6","#10b981","#06b6d4","#ef4444"];
+  let h = 0;
+  for (let i = 0; i < (name || "").length; i++) h = (h * 31 + name.charCodeAt(i)) % palette.length;
+  return palette[h];
+}
+
+// ─── /api/kpis ───────────────────────────────────────────────────────────────
+
+router.get("/kpis", async (_req, res) => {
+  const rows = await dbQuery(
+    `SELECT * FROM ${db.tbl("dashboard_gold_kpis")} ORDER BY kpi_date DESC LIMIT 1`,
+    "kpis",
+  );
+  const r = rows && rows[0];
+
   res.json({
-    totalCommits:     { value: "12,842", change: 14,  up: true  },
-    pullRequests:     { value: "3,102",  change: 22,  up: true  },
-    deployFrequency:  { value: "18 / week", change: 31, up: true },
-    ciFailureRate:    { value: "5.6%",   change: 28,  up: false },
-    incidentRecovery: { value: "22 min", change: 52,  up: false },
+    totalCommits:     { value: r ? fmt(r.total_commits_30d)     : "—",        change: null, up: true  },
+    pullRequests:     { value: "—",  change: null, up: true  },
+    deployFrequency:  { value: "—",  change: null, up: true  },
+    ciFailureRate:    { value: "—",  change: null, up: false },
+    incidentRecovery: { value: "—",  change: null, up: false },
+    // Extra gold fields for new KPI tiles
+    activeProjects:   r ? num(r.active_projects)   : null,
+    activeDevelopers: r ? num(r.active_developers)  : null,
+    openIssues:       r ? num(r.total_open_issues)  : null,
+    doneIssues30d:    r ? num(r.done_issues_30d)    : null,
   });
 });
 
-router.get("/health", (_req, res) => {
+// ─── /api/health ─────────────────────────────────────────────────────────────
+
+router.get("/health", async (_req, res) => {
+  const rows = await dbQuery(
+    `SELECT * FROM ${db.tbl("dashboard_gold_kpis")} ORDER BY kpi_date DESC LIMIT 1`,
+    "kpis",
+  );
+  const r = rows && rows[0];
+
+  const score = r ? (num(r.org_health_score) || 0) : 0;
+
+  // Compute derived health metrics from gold data
+  const totalIssues = r ? (num(r.total_done_issues) + num(r.total_open_issues) + num(r.total_in_progress)) : 0;
+  const bugRate = totalIssues > 0 ? ((num(r.total_bugs) / totalIssues) * 100).toFixed(1) : null;
+  const commitsPerDay = r ? (num(r.total_commits_30d) / 30).toFixed(1) : null;
+  const velocity = r ? num(r.done_issues_30d) : null;
+
   res.json({
-    score: 82,
-    change: 12,
+    score:  score,
+    change: null,
     metrics: [
-      { label: "PR Review Time",        value: "3.6 hrs",      change: 34, goodDown: true  },
-      { label: "Deployment Frequency",  value: "18 / week",    change: 31, goodDown: false },
-      { label: "CI Failure Rate",       value: "5.6%",         change: 28, goodDown: true  },
-      { label: "Avg. Incident Recovery",value: "22 min",       change: 52, goodDown: true  },
-      { label: "Team Velocity",         value: "28 story pts", change: 21, goodDown: false },
+      { label: "PR Review Time",         value: "—",          change: null, goodDown: true  },
+      { label: "Deployment Frequency",   value: "—",          change: null, goodDown: false },
+      { label: "Bug Rate",               value: bugRate != null ? `${bugRate}%` : "—", change: null, goodDown: true  },
+      { label: "Avg. Incident Recovery", value: "—",          change: null, goodDown: true  },
+      { label: "Team Velocity",          value: velocity != null ? `${velocity} done/30d` : "—", change: null, goodDown: false },
     ],
   });
 });
 
-router.get("/teams", (_req, res) => {
-  res.json([
-    { name: "Payments",       color: "#f59e0b", members: 8, tickets: 23, prs: 42, incidents: 7 },
-    { name: "Mobile App",     color: "#3b82f6", members: 5, tickets: 18, prs: 31, incidents: 3 },
-    { name: "Analytics",      color: "#8b5cf6", members: 4, tickets:  9, prs: 15, incidents: 1 },
-    { name: "Internal Tools", color: "#10b981", members: 3, tickets: 21, prs: 12, incidents: 4 },
-    { name: "Platform",       color: "#06b6d4", members: 6, tickets: 16, prs: 28, incidents: 5 },
-  ]);
+// ─── /api/teams ──────────────────────────────────────────────────────────────
+
+router.get("/teams", async (_req, res) => {
+  const rows = await dbQuery(
+    `SELECT team,
+            SUM(commits_last_30d)    AS commits_30d,
+            SUM(active_developers)   AS active_devs,
+            SUM(open_issues)         AS open_issues,
+            SUM(in_progress_issues)  AS in_progress
+     FROM ${db.tbl("dashboard_gold_project_summary")}
+     GROUP BY team
+     ORDER BY commits_30d DESC`,
+    "teams",
+  );
+
+  if (!rows || rows.length === 0) {
+    // Static fallback
+    return res.json([
+      { name: "HealthTech",               color: "#3b82f6", activeDevelopers: "—", openIssues: "—", commits30d: "—", inProgress: "—" },
+      { name: "FinTech",                  color: "#f59e0b", activeDevelopers: "—", openIssues: "—", commits30d: "—", inProgress: "—" },
+      { name: "EdTech",                   color: "#8b5cf6", activeDevelopers: "—", openIssues: "—", commits30d: "—", inProgress: "—" },
+      { name: "Enterprise",               color: "#10b981", activeDevelopers: "—", openIssues: "—", commits30d: "—", inProgress: "—" },
+      { name: "Engineering Intelligence", color: "#06b6d4", activeDevelopers: "—", openIssues: "—", commits30d: "—", inProgress: "—" },
+    ]);
+  }
+
+  res.json(rows.map((r) => ({
+    name:             r.team,
+    color:            teamColor(r.team),
+    activeDevelopers: num(r.active_devs),
+    openIssues:       num(r.open_issues),
+    commits30d:       num(r.commits_30d),
+    inProgress:       num(r.in_progress),
+  })));
 });
 
-router.get("/projects", (_req, res) => {
-  res.json([
-    { name: "Payment Gateway", team: "Payments",  color: "#f59e0b", cycleTime: "18h", deployFreq: "1.8/day", incidents: 7 },
-    { name: "Mobile App",      team: "Mobile",    color: "#3b82f6", cycleTime: "12h", deployFreq: "2.4/day", incidents: 3 },
-    { name: "Analytics",       team: "Analytics", color: "#8b5cf6", cycleTime: "26h", deployFreq: "1.1/day", incidents: 1 },
-    { name: "Internal Tools",  team: "Tools",     color: "#10b981", cycleTime: "32h", deployFreq: "0.8/day", incidents: 4 },
-    { name: "User Service",    team: "Platform",  color: "#06b6d4", cycleTime: "15h", deployFreq: "1.9/day", incidents: 5 },
-  ]);
+// ─── /api/projects ───────────────────────────────────────────────────────────
+
+router.get("/projects", async (_req, res) => {
+  const rows = await dbQuery(
+    `SELECT project_name, team, health_score,
+            commits_last_30d, open_issues, bugs_count,
+            in_progress_issues, done_issues_last_30d
+     FROM ${db.tbl("dashboard_gold_project_summary")}
+     ORDER BY health_score DESC`,
+    "projects",
+  );
+
+  if (!rows || rows.length === 0) {
+    return res.json([
+      { name: "HealthTrack Platform",   team: "HealthTech", color: "#3b82f6", healthScore: null, commits30d: null, openIssues: null, bugs: null },
+      { name: "FinEdge Analytics",      team: "FinTech",    color: "#f59e0b", healthScore: null, commits30d: null, openIssues: null, bugs: null },
+      { name: "EduConnect LMS",         team: "EdTech",     color: "#8b5cf6", healthScore: null, commits30d: null, openIssues: null, bugs: null },
+      { name: "LogiTrack Supply Chain", team: "Enterprise", color: "#10b981", healthScore: null, commits30d: null, openIssues: null, bugs: null },
+      { name: "DevPulse Internal",      team: "Engineering Intelligence", color: "#06b6d4", healthScore: null, commits30d: null, openIssues: null, bugs: null },
+    ]);
+  }
+
+  res.json(rows.map((r) => ({
+    name:        r.project_name,
+    team:        r.team,
+    color:       teamColor(r.team),
+    healthScore: num(r.health_score),
+    commits30d:  num(r.commits_last_30d),
+    openIssues:  num(r.open_issues),
+    bugs:        num(r.bugs_count),
+    inProgress:  num(r.in_progress_issues),
+  })));
 });
 
-router.get("/time-distribution", (_req, res) => {
+// ─── /api/velocity ───────────────────────────────────────────────────────────
+
+router.get("/velocity", async (_req, res) => {
+  const rows = await dbQuery(
+    `SELECT project_name, team, sprint_name,
+            done_issues_last_30d, in_progress_issues, open_issues,
+            avg_story_points, lines_added_30d, lines_removed_30d,
+            health_score
+     FROM ${db.tbl("dashboard_gold_project_summary")}
+     ORDER BY done_issues_last_30d DESC`,
+    "velocity",
+  );
+
+  if (!rows) return res.json([]);
+
+  res.json(rows.map((r) => ({
+    projectName:      r.project_name,
+    team:             r.team,
+    sprintName:       r.sprint_name || "—",
+    doneIssues30d:    num(r.done_issues_last_30d),
+    inProgress:       num(r.in_progress_issues),
+    openIssues:       num(r.open_issues),
+    avgStoryPoints:   r.avg_story_points != null ? Number(r.avg_story_points).toFixed(1) : null,
+    linesAdded:       num(r.lines_added_30d),
+    linesRemoved:     num(r.lines_removed_30d),
+    healthScore:      num(r.health_score),
+  })));
+});
+
+// ─── /api/time-distribution ──────────────────────────────────────────────────
+
+router.get("/time-distribution", async (_req, res) => {
+  const rows = await dbQuery(
+    `SELECT * FROM ${db.tbl("dashboard_gold_kpis")} ORDER BY kpi_date DESC LIMIT 1`,
+    "kpis",
+  );
+  const r = rows && rows[0];
+
+  if (!r) {
+    return res.json({
+      total: "—",
+      breakdown: [
+        { label: "Feature work",  color: "#3b82f6", pct: 38 },
+        { label: "Bug fixing",    color: "#ef4444", pct: 15 },
+        { label: "Tasks / Ops",   color: "#f59e0b", pct: 16 },
+        { label: "Other",         color: "#d1d5db", pct: 31 },
+      ],
+    });
+  }
+
+  const stories  = num(r.total_stories)  || 0;
+  const bugs     = num(r.total_bugs)     || 0;
+  const tasks    = num(r.total_tasks)    || 0;
+  const total    = stories + bugs + tasks;
+
+  const pct = (v) => total > 0 ? Math.round((v / total) * 100) : 0;
+  const storiesPct = pct(stories);
+  const bugsPct    = pct(bugs);
+  const tasksPct   = pct(tasks);
+  const otherPct   = Math.max(0, 100 - storiesPct - bugsPct - tasksPct);
+
   res.json({
-    total: "2,480 hrs",
+    total: fmt(total) + " issues",
     breakdown: [
-      { label: "Feature work",  color: "#3b82f6", pct: 38 },
-      { label: "Code reviews",  color: "#8b5cf6", pct: 16 },
-      { label: "Bug fixing",    color: "#ef4444", pct: 15 },
-      { label: "CI/CD",         color: "#f59e0b", pct: 12 },
-      { label: "Meetings",      color: "#10b981", pct:  8 },
-      { label: "Other",         color: "#d1d5db", pct: 11 },
-    ],
+      { label: "Feature Stories", color: "#3b82f6", pct: storiesPct },
+      { label: "Bug Fixes",       color: "#ef4444", pct: bugsPct    },
+      { label: "Tasks / Ops",     color: "#f59e0b", pct: tasksPct   },
+      { label: "Other",           color: "#d1d5db", pct: otherPct   },
+    ].filter((b) => b.pct > 0),
   });
 });
 
-router.get("/activity", (_req, res) => {
-  res.json([
-    { source: "GitHub",     color: "#24292e", icon: "GH", text: "PR #452 merged in payment-service",      time: "2h ago" },
-    { source: "Jira",       color: "#0052cc", icon: "JI", text: "Jira ticket DEV-312 moved to In Progress", time: "3h ago" },
-    { source: "CI/CD",      color: "#f59e0b", icon: "CI", text: "Deployment to prod succeeded (v2.4.1)",  time: "4h ago" },
-    { source: "Monitoring", color: "#ef4444", icon: "MO", text: "Incident resolved — api-gateway",        time: "5h ago" },
-    { source: "Vyaguta",    color: "#8b5cf6", icon: "VY", text: "New feedback received for team Payments", time: "6h ago" },
-  ]);
+// ─── /api/activity ───────────────────────────────────────────────────────────
+
+router.get("/activity", async (_req, res) => {
+  const rows = await dbQuery(
+    `SELECT event_id, event_type, event_time, project_name, repository,
+            actor, description, source, priority, status
+     FROM ${db.tbl("dashboard_gold_recent_activity")}
+     ORDER BY event_time DESC
+     LIMIT 20`,
+    "activity",
+  );
+
+  if (!rows || rows.length === 0) {
+    return res.json([
+      { source: "GitHub", color: "#24292e", icon: "GH", text: "Waiting for first pipeline run…", time: "—" },
+    ]);
+  }
+
+  const SOURCE_META = {
+    GitHub:     { color: "#24292e", icon: "GH" },
+    Jira:       { color: "#0052cc", icon: "JI" },
+    "CI/CD":    { color: "#f59e0b", icon: "CI" },
+    Monitoring: { color: "#ef4444", icon: "MO" },
+    Vyaguta:    { color: "#8b5cf6", icon: "VY" },
+  };
+
+  function timeAgo(ts) {
+    if (!ts) return "—";
+    const secs = Math.floor((Date.now() - new Date(ts).getTime()) / 1000);
+    if (secs < 60)   return `${secs}s ago`;
+    if (secs < 3600) return `${Math.floor(secs / 60)}m ago`;
+    if (secs < 86400)return `${Math.floor(secs / 3600)}h ago`;
+    return `${Math.floor(secs / 86400)}d ago`;
+  }
+
+  res.json(rows.map((r) => {
+    const meta  = SOURCE_META[r.source] || { color: "#6b7280", icon: "??" };
+    const label = r.event_type === "commit"
+      ? `${r.actor || "Someone"} pushed to ${r.repository || r.project_name}: ${(r.description || "").slice(0, 60)}`
+      : `${r.issue_key || ""} ${r.description || "JIRA issue updated"} [${r.status || ""}]`;
+    return {
+      source: r.source,
+      color:  meta.color,
+      icon:   meta.icon,
+      text:   label,
+      time:   timeAgo(r.event_time),
+      projectName: r.project_name,
+    };
+  }));
 });
 
-router.get("/vyaguta", (_req, res) => {
+// ─── /api/vyaguta ────────────────────────────────────────────────────────────
+
+router.get("/vyaguta", async (_req, res) => {
+  const rows = await dbQuery(
+    `SELECT * FROM ${db.tbl("dashboard_gold_kpis")} ORDER BY kpi_date DESC LIMIT 1`,
+    "kpis",
+  );
+  const r = rows && rows[0];
+
+  // Jira projects and archived count from static Vyaguta mirror (gold doesn't track these yet)
   const active   = vy.activeProjects();
-  const repos    = vy.activeProjectRepos();
-  const teams    = vy.activeTeams();
   const archived = vy.archivedProjects();
+  const jiraKeys = [...new Set(active.map((p) => p.jiraProjectKey))];
+
   res.json([
-    { label: "Active Projects", value: String(active.length),   change: "",  up: null },
-    { label: "Tracked Repos",   value: String(repos.length),    change: "",  up: null },
-    { label: "Jira Projects",   value: String(active.length),   change: "",  up: null },
-    { label: "Archived",        value: String(archived.length), change: "",  up: null },
+    { label: "Active Projects", value: r ? String(num(r.active_projects))  : String(active.length)  },
+    { label: "Tracked Repos",   value: r ? String(num(r.active_repos))     : String(vy.activeProjectRepos().length) },
+    { label: "Jira Projects",   value: String(jiraKeys.length) },
+    { label: "Archived",        value: String(archived.length) },
   ]);
 });
 
-router.get("/insights", (_req, res) => {
-  res.json([
-    "Payment Gateway has the highest incident rate (7 in last 30 days).",
-    "PR review time improved by 34% after the new review process.",
-    "Team Analytics has the highest cycle time (26h avg).",
-    "Overall engineering health is up by 12%.",
+// ─── /api/insights ───────────────────────────────────────────────────────────
+
+router.get("/insights", async (_req, res) => {
+  const [kpiRows, projRows] = await Promise.all([
+    dbQuery(`SELECT * FROM ${db.tbl("dashboard_gold_kpis")} ORDER BY kpi_date DESC LIMIT 1`, "kpis"),
+    dbQuery(`SELECT * FROM ${db.tbl("dashboard_gold_project_summary")} ORDER BY health_score ASC LIMIT 1`, "insights_proj"),
   ]);
+
+  const kpi  = kpiRows  && kpiRows[0];
+  const proj = projRows && projRows[0];
+
+  const insights = [];
+
+  if (kpi) {
+    insights.push(`${fmt(kpi.total_commits_30d)} commits across ${fmt(kpi.active_projects)} active projects in the last 30 days.`);
+    insights.push(`${fmt(kpi.done_issues_30d)} JIRA issues resolved in the last 30 days (${fmt(kpi.total_open_issues)} still open).`);
+    if (num(kpi.total_bugs) > 0) insights.push(`${fmt(kpi.total_bugs)} open bugs tracked across all projects.`);
+    if (num(kpi.active_developers) > 0) insights.push(`${fmt(kpi.active_developers)} developers made commits in the last 30 days.`);
+  }
+
+  if (proj) insights.push(`"${proj.project_name}" has the lowest health score (${proj.health_score}/100) — ${proj.bugs_count} open bugs.`);
+
+  if (insights.length === 0) {
+    insights.push(
+      "Run the daily_ingest_pipeline job to populate live data.",
+      "Dashboard gold tables are currently empty.",
+    );
+  }
+
+  res.json(insights);
 });
 
 module.exports = router;
