@@ -144,3 +144,196 @@ def get_commits_for_repo_and_date(repo_name: str, org: str, processing_date: str
                 c["organization"] = org
                 commits.append(c)
     return commits
+
+
+# ── Pull Request mock data ────────────────────────────────────────────────────
+
+_PR_TITLES = [
+    "Add user authentication flow",
+    "Fix null pointer in API handler",
+    "Refactor database connection pooling",
+    "Implement data validation layer",
+    "Add unit tests for payment module",
+    "Optimize query performance",
+    "Remove deprecated endpoints",
+    "Update dependencies",
+    "Add structured logging",
+    "Fix memory leak in worker",
+    "Implement retry logic for external API calls",
+    "Refactor authentication middleware",
+    "Add integration tests",
+    "Improve error messages",
+    "Add pagination to listing endpoints",
+    "Implement two-factor authentication",
+    "Database index optimization",
+    "Add CSV export feature",
+]
+
+_BASE_REFS = ["main", "main", "main", "main", "develop"]
+_HEAD_PREFIXES = ["feature/", "fix/", "chore/", "refactor/", "hotfix/"]
+
+
+def _pr_id(dt: date, repo: str, org: str, idx: int) -> str:
+    return hashlib.sha1(f"pr-{dt.isoformat()}-{org}/{repo}-{idx}".encode()).hexdigest()[:12]
+
+
+def _pr_number(dt: date, repo: str, org: str, idx: int) -> int:
+    base = _h(f"prbase-{org}/{repo}", 800) + 200
+    daily = _h(f"prdaily-{dt.isoformat()}-{repo}", 5)
+    return base + daily + idx
+
+
+def get_pull_requests_for_repo_and_date(repo_name: str, org: str, processing_date: str) -> list[dict]:
+    """Return pull requests created or updated on processing_date for the given repo.
+
+    Simulates the GitHub REST API:
+      GET /repos/{owner}/{repo}/pulls?state=all&since={processing_date}T00:00:00Z
+
+    Returns 2-5 PRs deterministically per (repo, date).
+    This is the integration point — replace with a real GitHub API call to go live.
+    """
+    dt = date.fromisoformat(processing_date)
+    count = _h(f"prcount-{org}/{repo_name}-{dt.isoformat()}", 4) + 2  # 2-5 PRs
+
+    prs = []
+    for i in range(count):
+        pr_id = _pr_id(dt, repo_name, org, i)
+        number = _pr_number(dt, repo_name, org, i)
+        seed = f"pr-{pr_id}"
+
+        # Created at: between 07:00 and 14:00 on the processing_date
+        created_hour = _h(f"prcreated_h-{seed}", 8) + 7
+        created_min = _h(f"prcreated_m-{seed}", 60)
+        created_at = datetime(dt.year, dt.month, dt.day, created_hour, created_min, 0)
+
+        # ~75% of PRs get reviewed on the same day
+        is_reviewed = _h(f"reviewed-{seed}", 4) < 3
+        first_review_at = None
+        first_reviewer = None
+        if is_reviewed:
+            review_hours_after = _h(f"reviewlag-{seed}", 6) + 1  # 1-6 hours after creation
+            review_at = datetime(
+                dt.year, dt.month, dt.day, min(created_hour + review_hours_after, 22), _h(f"reviewmin-{seed}", 60), 0
+            )
+            first_review_at = review_at.isoformat()
+            dev_idx = _h(f"reviewer-{seed}", len(DEVELOPERS))
+            first_reviewer = DEVELOPERS[dev_idx][0]
+
+        # ~65% of reviewed PRs are merged on the same day
+        is_merged = is_reviewed and _h(f"merged-{seed}", 10) < 7
+        merged_at = None
+        closed_at = None
+        if is_merged and first_review_at:
+            merge_min_after = _h(f"mergelag-{seed}", 120) + 15  # 15-135 min after review
+            review_dt = datetime.fromisoformat(first_review_at)
+            total_minutes = review_dt.hour * 60 + review_dt.minute + merge_min_after
+            merge_hour = min(total_minutes // 60, 23)
+            merge_minute = total_minutes % 60
+            merge_ts = datetime(dt.year, dt.month, dt.day, merge_hour, merge_minute, 0)
+            merged_at = merge_ts.isoformat()
+            closed_at = merged_at
+
+        state = "closed" if merged_at else "open"
+        author_idx = _h(f"prauthor-{seed}", len(DEVELOPERS))
+        author_name, author_email = DEVELOPERS[author_idx]
+        head_prefix = _HEAD_PREFIXES[_h(f"headprefix-{seed}", len(_HEAD_PREFIXES))]
+        title = _PR_TITLES[_h(f"prtitle-{seed}", len(_PR_TITLES))]
+
+        prs.append(
+            {
+                "pr_id": pr_id,
+                "number": number,
+                "title": title,
+                "state": state,
+                "repository": repo_name,
+                "organization": org,
+                "author": author_name,
+                "author_email": author_email,
+                "created_at": created_at.isoformat(),
+                "updated_at": (merged_at or first_review_at or created_at.isoformat()),
+                "merged_at": merged_at,
+                "closed_at": closed_at,
+                "first_review_submitted_at": first_review_at,
+                "first_reviewer": first_reviewer,
+                "base_ref": _BASE_REFS[_h(f"baseref-{seed}", len(_BASE_REFS))],
+                "head_ref": f"{head_prefix}{title.lower().replace(' ', '-')[:20]}",
+                "additions": _h(f"pradd-{seed}", 400) + 5,
+                "deletions": _h(f"prdel-{seed}", 200),
+                "changed_files": _h(f"prfiles-{seed}", 15) + 1,
+                "is_merged": is_merged,
+                "draft": _h(f"draft-{seed}", 10) == 0,  # ~10% drafts
+            }
+        )
+
+    return prs
+
+
+# ── Deployment mock data ──────────────────────────────────────────────────────
+
+_DEPLOYMENT_ENVS = ["staging", "staging", "staging", "production", "production"]
+_DEPLOYMENT_STATUSES = ["success", "success", "success", "success", "failure"]
+_DEPLOYMENT_DESCRIPTIONS = [
+    "Automated deploy from CI pipeline",
+    "Hotfix release",
+    "Scheduled nightly deployment",
+    "Feature release v2",
+    "Rollback to stable",
+]
+
+
+def _deployment_id(dt: date, repo: str, org: str, idx: int) -> str:
+    return hashlib.sha1(f"deploy-{dt.isoformat()}-{org}/{repo}-{idx}".encode()).hexdigest()[:12]
+
+
+def get_deployments_for_repo_and_date(repo_name: str, org: str, processing_date: str) -> list[dict]:
+    """Return deployments created on processing_date for the given repo.
+
+    Simulates the GitHub REST API:
+      GET /repos/{owner}/{repo}/deployments?created_since={processing_date}T00:00:00Z
+      + deployment status from GET /repos/{owner}/{repo}/deployments/{deployment_id}/statuses
+
+    Returns 1-3 deployments deterministically per (repo, date).
+    This is the integration point — replace with a real GitHub API call to go live.
+    """
+    dt = date.fromisoformat(processing_date)
+    # Only deploy on weekdays with some probability
+    if dt.weekday() >= 5:
+        if _h(f"wknd-deploy-{org}/{repo_name}-{dt.isoformat()}", 5) == 0:
+            return []  # ~80% skip weekends
+    count = _h(f"deploycount-{org}/{repo_name}-{dt.isoformat()}", 3) + 1  # 1-3
+
+    deployments = []
+    for i in range(count):
+        deploy_id = _deployment_id(dt, repo_name, org, i)
+        seed = f"deploy-{deploy_id}"
+
+        deploy_hour = _h(f"dh-{seed}", 8) + 10  # 10:00 - 17:00
+        deploy_min = _h(f"dm-{seed}", 60)
+        created_at = datetime(dt.year, dt.month, dt.day, deploy_hour, deploy_min, 0)
+
+        duration_secs = _h(f"dur-{seed}", 480) + 60  # 60-540 seconds
+        updated_at = created_at + timedelta(seconds=duration_secs)
+
+        environment = _DEPLOYMENT_ENVS[_h(f"env-{seed}", len(_DEPLOYMENT_ENVS))]
+        status = _DEPLOYMENT_STATUSES[_h(f"status-{seed}", len(_DEPLOYMENT_STATUSES))]
+        creator_idx = _h(f"creator-{seed}", len(DEVELOPERS))
+
+        deployments.append(
+            {
+                "deployment_id": deploy_id,
+                "repository": repo_name,
+                "organization": org,
+                "environment": environment,
+                "ref": _BRANCHES[_h(f"dref-{seed}", len(_BRANCHES))],
+                "sha": hashlib.sha1(f"sha-{seed}".encode()).hexdigest(),
+                "created_at": created_at.isoformat(),
+                "updated_at": updated_at.isoformat(),
+                "status": status,
+                "creator": DEVELOPERS[creator_idx][0],
+                "creator_email": DEVELOPERS[creator_idx][1],
+                "description": _DEPLOYMENT_DESCRIPTIONS[_h(f"ddesc-{seed}", len(_DEPLOYMENT_DESCRIPTIONS))],
+                "duration_seconds": duration_secs,
+            }
+        )
+
+    return deployments

@@ -7,9 +7,11 @@
 #
 #   daily_ingest_setup
 #       └── vyaguta_bronze
-#               ├── vyaguta_silver → vyaguta_gold ─────────────────────────────────────────────┐
-#               ├── project_github_bronze → project_github_silver → project_github_gold ───────┤→ dashboard_gold
-#               └── jira_bronze           → jira_silver           → jira_gold ─────────────────┘
+#               ├── vyaguta_silver → vyaguta_gold ──────────────────────────────────────────────────────────────────────┐
+#               ├── project_github_bronze → project_github_silver → project_github_gold ────────────────────────────────┤
+#               ├── project_github_pr_bronze → project_github_pr_silver → project_github_pr_gold ───────────────────────┤→ dashboard_gold
+#               ├── project_github_deployment_bronze → project_github_deployment_silver → project_github_deployment_gold ┤
+#               └── jira_bronze → jira_silver → jira_gold ────────────────────────────────────────────────────────────────┘
 #
 # Bronze layer:
 #   vyaguta_bronze          — fetches all active projects from Vyaguta (mock), writes vyaguta_bronze_projects
@@ -168,11 +170,85 @@ resources:
               processing_date: "{{job.parameters.processing_date}}"
           environment_key: default
 
+        - task_key: project_github_pr_bronze
+          depends_on:
+            - task_key: vyaguta_bronze
+          python_wheel_task:
+            package_name: leapfrog_pulse
+            entry_point: project_github_pr_bronze
+            named_parameters:
+              catalog: "{{job.parameters.catalog}}"
+              schema: "{{job.parameters.schema}}"
+              processing_date: "{{job.parameters.processing_date}}"
+          environment_key: default
+
+        - task_key: project_github_pr_silver
+          depends_on:
+            - task_key: project_github_pr_bronze
+          python_wheel_task:
+            package_name: leapfrog_pulse
+            entry_point: project_github_pr_silver
+            named_parameters:
+              catalog: "{{job.parameters.catalog}}"
+              schema: "{{job.parameters.schema}}"
+              processing_date: "{{job.parameters.processing_date}}"
+          environment_key: default
+
+        - task_key: project_github_pr_gold
+          depends_on:
+            - task_key: project_github_pr_silver
+          python_wheel_task:
+            package_name: leapfrog_pulse
+            entry_point: project_github_pr_gold
+            named_parameters:
+              catalog: "{{job.parameters.catalog}}"
+              schema: "{{job.parameters.schema}}"
+              processing_date: "{{job.parameters.processing_date}}"
+          environment_key: default
+
+        - task_key: project_github_deployment_bronze
+          depends_on:
+            - task_key: vyaguta_bronze
+          python_wheel_task:
+            package_name: leapfrog_pulse
+            entry_point: project_github_deployment_bronze
+            named_parameters:
+              catalog: "{{job.parameters.catalog}}"
+              schema: "{{job.parameters.schema}}"
+              processing_date: "{{job.parameters.processing_date}}"
+          environment_key: default
+
+        - task_key: project_github_deployment_silver
+          depends_on:
+            - task_key: project_github_deployment_bronze
+          python_wheel_task:
+            package_name: leapfrog_pulse
+            entry_point: project_github_deployment_silver
+            named_parameters:
+              catalog: "{{job.parameters.catalog}}"
+              schema: "{{job.parameters.schema}}"
+              processing_date: "{{job.parameters.processing_date}}"
+          environment_key: default
+
+        - task_key: project_github_deployment_gold
+          depends_on:
+            - task_key: project_github_deployment_silver
+          python_wheel_task:
+            package_name: leapfrog_pulse
+            entry_point: project_github_deployment_gold
+            named_parameters:
+              catalog: "{{job.parameters.catalog}}"
+              schema: "{{job.parameters.schema}}"
+              processing_date: "{{job.parameters.processing_date}}"
+          environment_key: default
+
         # ── Dashboard Mart ─────────────────────────────────────────────────────
         - task_key: dashboard_gold
           depends_on:
             - task_key: vyaguta_gold
             - task_key: project_github_gold
+            - task_key: project_github_pr_gold
+            - task_key: project_github_deployment_gold
             - task_key: jira_gold
           python_wheel_task:
             package_name: leapfrog_pulse

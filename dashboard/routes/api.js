@@ -43,9 +43,9 @@ router.get("/kpis", async (_req, res) => {
   const r = rows && rows[0];
 
   res.json({
-    totalCommits:     { value: r ? fmt(r.total_commits_30d)     : "—",        change: null, up: true  },
+    totalCommits:     { value: r ? fmt(r.total_commits_30d) : "—",  change: null, up: true  },
     pullRequests:     { value: "—",  change: null, up: true  },
-    deployFrequency:  { value: "—",  change: null, up: true  },
+    deployFrequency:  { value: r && num(r.deploy_frequency_30d) != null ? `${num(r.deploy_frequency_30d).toFixed(2)}/day` : "—", change: null, up: true  },
     ciFailureRate:    { value: "—",  change: null, up: false },
     incidentRecovery: { value: "—",  change: null, up: false },
     // Extra gold fields for new KPI tiles
@@ -70,18 +70,24 @@ router.get("/health", async (_req, res) => {
   // Compute derived health metrics from gold data
   const totalIssues = r ? (num(r.total_done_issues) + num(r.total_open_issues) + num(r.total_in_progress)) : 0;
   const bugRate = totalIssues > 0 ? ((num(r.total_bugs) / totalIssues) * 100).toFixed(1) : null;
-  const commitsPerDay = r ? (num(r.total_commits_30d) / 30).toFixed(1) : null;
-  const velocity = r ? num(r.done_issues_30d) : null;
+  const prReviewTime = r ? num(r.avg_pr_review_time_hrs) : null;
+  const deployFreq = r ? num(r.deploy_frequency_30d) : null;
+  const velocitySP = r ? num(r.velocity_story_points_30d) : null;
+  const velocityIssues = r ? num(r.done_issues_30d) : null;
+
+  const velocityValue = velocitySP != null && velocitySP > 0
+    ? `${velocitySP} SP/30d`
+    : (velocityIssues != null ? `${velocityIssues} issues/30d` : "—");
 
   res.json({
     score:  score,
     change: null,
     metrics: [
-      { label: "PR Review Time",         value: "—",          change: null, goodDown: true  },
-      { label: "Deployment Frequency",   value: "—",          change: null, goodDown: false },
-      { label: "Bug Rate",               value: bugRate != null ? `${bugRate}%` : "—", change: null, goodDown: true  },
-      { label: "Avg. Incident Recovery", value: "—",          change: null, goodDown: true  },
-      { label: "Team Velocity",          value: velocity != null ? `${velocity} done/30d` : "—", change: null, goodDown: false },
+      { label: "PR Review Time",         value: prReviewTime != null ? `${prReviewTime.toFixed(1)}h avg` : "—", change: null, goodDown: true  },
+      { label: "Deployment Frequency",   value: deployFreq != null ? `${deployFreq.toFixed(2)}/day` : "—",      change: null, goodDown: false },
+      { label: "Bug Rate",               value: bugRate != null ? `${bugRate}%` : "—",                          change: null, goodDown: true  },
+      { label: "Avg. Incident Recovery", value: "—",                                                            change: null, goodDown: true  },
+      { label: "Team Velocity",          value: velocityValue,                                                   change: null, goodDown: false },
     ],
   });
 });

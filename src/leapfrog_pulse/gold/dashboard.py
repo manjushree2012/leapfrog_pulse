@@ -221,11 +221,40 @@ def compute_kpis(spark: SparkSession, catalog: str, schema: str, as_of: date) ->
         )
     )
 
-    # JIRA 30-day velocity
+    # JIRA 30-day velocity: done issue count + resolved story points
     jr_30d = (
         spark.table(f"`{catalog}`.`{schema}`.jira_gold_project_daily_metrics")
         .filter(F.col("metric_date").between(window_start, window_end))
-        .agg(F.sum("done_issues").alias("done_issues_30d"))
+        .agg(
+            F.sum("done_issues").alias("done_issues_30d"),
+            F.sum("resolved_story_points").alias("velocity_story_points_30d"),
+        )
+    )
+
+    # PR metrics: weighted-average review time over 30 days
+    pr = (
+        spark.table(f"`{catalog}`.`{schema}`.github_gold_pr_daily_metrics")
+        .filter(F.col("metric_date").between(window_start, window_end))
+        .agg(
+            F.round(
+                F.sum(F.col("avg_review_time_hrs") * F.col("reviewed_prs"))
+                / F.greatest(F.sum("reviewed_prs"), F.lit(1)),
+                1,
+            ).alias("avg_pr_review_time_hrs"),
+            F.sum("total_prs").alias("total_prs_30d"),
+            F.sum("merged_prs").alias("merged_prs_30d"),
+        )
+    )
+
+    # Deployment metrics: successful production deployments per day over 30 days
+    dep = (
+        spark.table(f"`{catalog}`.`{schema}`.github_gold_deployment_daily_metrics")
+        .filter(F.col("metric_date").between(window_start, window_end))
+        .agg(
+            F.round(F.sum("successful_prod_deployments") / F.lit(30.0), 2).alias("deploy_frequency_30d"),
+            F.sum("total_deployments").alias("total_deployments_30d"),
+            F.sum("successful_deployments").alias("successful_deployments_30d"),
+        )
     )
 
     # Project summary health average
@@ -235,7 +264,7 @@ def compute_kpis(spark: SparkSession, catalog: str, schema: str, as_of: date) ->
     )
 
     # Cross-join single-row aggregations to produce one KPI row
-    kpis = gh.crossJoin(jr).crossJoin(jr_30d).crossJoin(ph)
+    kpis = gh.crossJoin(jr).crossJoin(jr_30d).crossJoin(pr).crossJoin(dep).crossJoin(ph)
 
     return kpis.withColumn("kpi_date", F.lit(as_of.isoformat()).cast("date")).withColumn(
         "updated_at", F.lit(_now()).cast("timestamp")
@@ -245,21 +274,28 @@ def compute_kpis(spark: SparkSession, catalog: str, schema: str, as_of: date) ->
 def ensure_kpis_table(spark: SparkSession, catalog: str, schema: str) -> None:
     spark.sql(f"""
         CREATE TABLE IF NOT EXISTS `{catalog}`.`{schema}`.dashboard_gold_kpis (
-            kpi_date            DATE    NOT NULL,
-            total_commits_30d   LONG,
-            active_developers   LONG,
-            active_projects     LONG,
-            active_repos        LONG,
-            total_open_issues   LONG,
-            total_in_progress   LONG,
-            total_done_issues   LONG,
-            done_issues_30d     LONG,
-            total_bugs          LONG,
-            total_stories       LONG,
-            total_tasks         LONG,
-            org_health_score    INT,
-            tracked_projects    LONG,
-            updated_at          TIMESTAMP
+            kpi_date                    DATE    NOT NULL,
+            total_commits_30d           LONG,
+            active_developers           LONG,
+            active_projects             LONG,
+            active_repos                LONG,
+            total_open_issues           LONG,
+            total_in_progress           LONG,
+            total_done_issues           LONG,
+            done_issues_30d             LONG,
+            velocity_story_points_30d   LONG,
+            total_bugs                  LONG,
+            total_stories               LONG,
+            total_tasks                 LONG,
+            avg_pr_review_time_hrs      DOUBLE,
+            total_prs_30d               LONG,
+            merged_prs_30d              LONG,
+            deploy_frequency_30d        DOUBLE,
+            total_deployments_30d       LONG,
+            successful_deployments_30d  LONG,
+            org_health_score            INT,
+            tracked_projects            LONG,
+            updated_at                  TIMESTAMP
         )
         USING DELTA
         COMMENT 'Org-wide daily KPI snapshot for the DevPulse dashboard top tiles'
