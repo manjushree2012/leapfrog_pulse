@@ -656,7 +656,7 @@
         </div>
         <div style="margin-bottom:16px"></div>
         <div class="vyaguta-list">
-          <div class="vy-item">
+          <div class="vy-item" data-vy-key="Active Projects">
             <div class="vy-left">
               <div class="vy-icon" style="background:#eff6ff">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2"><path d="M2 20h20M6 20V10l6-7 6 7v10"/></svg>
@@ -665,43 +665,39 @@
             </div>
             <div class="vy-right">
               <span class="vy-value">—</span>
-              <span class="vy-change up"></span>
             </div>
           </div>
-          <div class="vy-item">
+          <div class="vy-item" data-vy-key="Tracked Repos">
             <div class="vy-left">
               <div class="vy-icon" style="background:#f0fdf4">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>
               </div>
-              <span class="vy-label">Total Team Members</span>
+              <span class="vy-label">Tracked Repos</span>
             </div>
             <div class="vy-right">
               <span class="vy-value">—</span>
-              <span class="vy-change flat"></span>
             </div>
           </div>
-          <div class="vy-item">
+          <div class="vy-item" data-vy-key="Jira Projects">
             <div class="vy-left">
               <div class="vy-icon" style="background:#fff7ed">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
               </div>
-              <span class="vy-label">Attendance (avg.)</span>
+              <span class="vy-label">Jira Projects</span>
             </div>
             <div class="vy-right">
               <span class="vy-value">—</span>
-              <span class="vy-change up"></span>
             </div>
           </div>
-          <div class="vy-item">
+          <div class="vy-item" data-vy-key="Archived">
             <div class="vy-left">
               <div class="vy-icon" style="background:#f5f3ff">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" stroke-width="2"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg>
               </div>
-              <span class="vy-label">Recent Feedback</span>
+              <span class="vy-label">Archived</span>
             </div>
             <div class="vy-right">
               <span class="vy-value">—</span>
-              <span class="vy-change up"></span>
             </div>
           </div>
         </div>
@@ -895,18 +891,11 @@
   }
 
   function renderVyaguta(items) {
-    const vyItems = document.querySelectorAll('.vy-item');
-    items.forEach((item, i) => {
-      if (!vyItems[i]) return;
-      const valEl = vyItems[i].querySelector('.vy-value');
-      const chgEl = vyItems[i].querySelector('.vy-change');
+    items.forEach((item) => {
+      const el = document.querySelector(`.vy-item[data-vy-key="${item.label}"]`);
+      if (!el) return;
+      const valEl = el.querySelector('.vy-value');
       if (valEl) valEl.textContent = item.value;
-      if (chgEl) {
-        const cls = item.up === true ? 'up' : 'flat';
-        const arr = changeArrow(item.up);
-        chgEl.className = `vy-change ${cls}`;
-        chgEl.textContent = `${arr} ${item.change}`;
-      }
     });
   }
 

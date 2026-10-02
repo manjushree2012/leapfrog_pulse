@@ -1,5 +1,6 @@
 const { Router } = require("express");
 const router = Router();
+const vy = require("../data/vyaguta");
 
 // Shapes here mirror what the render functions in public/index.html expect.
 // Replace stub values with real Databricks / Gold-layer queries when ready.
@@ -73,11 +74,15 @@ router.get("/activity", (_req, res) => {
 });
 
 router.get("/vyaguta", (_req, res) => {
+  const active   = vy.activeProjects();
+  const repos    = vy.activeProjectRepos();
+  const teams    = vy.activeTeams();
+  const archived = vy.archivedProjects();
   res.json([
-    { value: "12",  change: "1",  up: true  },
-    { value: "48",  change: "0",  up: null  },
-    { value: "92%", change: "2%", up: true  },
-    { value: "18",  change: "5%", up: true  },
+    { label: "Active Projects", value: String(active.length),   change: "",  up: null },
+    { label: "Tracked Repos",   value: String(repos.length),    change: "",  up: null },
+    { label: "Jira Projects",   value: String(active.length),   change: "",  up: null },
+    { label: "Archived",        value: String(archived.length), change: "",  up: null },
   ]);
 });
 
