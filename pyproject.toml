@@ -25,6 +25,12 @@ main = "leapfrog_pulse.main:main"
 github_bronze = "leapfrog_pulse.github.bronze:main"
 github_silver = "leapfrog_pulse.github.silver:main"
 github_gold = "leapfrog_pulse.github.gold:main"
+vyaguta_bronze = "leapfrog_pulse.vyaguta.bronze:main"
+vyaguta_silver = "leapfrog_pulse.vyaguta.silver:main"
+vyaguta_gold = "leapfrog_pulse.vyaguta.gold:main"
+project_github_bronze = "leapfrog_pulse.github.project_bronze:main"
+jira_bronze = "leapfrog_pulse.jira.bronze:main"
+daily_ingest_setup = "leapfrog_pulse.daily_setup:main"
 
 [build-system]
 requires = ["hatchling"]

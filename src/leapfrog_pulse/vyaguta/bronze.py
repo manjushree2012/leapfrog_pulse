@@ -80,7 +80,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Vyaguta Bronze ingestion")
     parser.add_argument("--catalog", required=True)
     parser.add_argument("--schema", required=True)
-    args = parser.parse_args()
+    args = parser.parse_known_args()[0]
 
     from databricks.connect import DatabricksSession
 

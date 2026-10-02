@@ -123,3 +123,24 @@ def get_all_commits() -> list[dict]:
         all_commits.extend(_generate_for_date(current))
         current += timedelta(days=1)
     return all_commits
+
+
+def get_commits_for_repo_and_date(repo_name: str, org: str, processing_date: str) -> list[dict]:
+    """Return commits for a specific (org, repo) on processing_date.
+
+    Unlike get_commits_for_date(), this accepts any repo name — including repos
+    discovered from Vyaguta — and is not limited to the static REPOSITORIES list.
+    Output is fully deterministic for any (repo_name, org, processing_date) triple.
+    This is the integration point for the project-driven pipeline; replace with a
+    real GitHub API call scoped to the repository to go live.
+    """
+    dt = date.fromisoformat(processing_date)
+    commits = []
+    for dev_name, dev_email in DEVELOPERS:
+        if _active_on_date(dt, repo_name, dev_email):
+            n = _commits_on_date(dt, repo_name, dev_email)
+            for i in range(n):
+                c = _build_commit(dt, repo_name, dev_name, dev_email, i)
+                c["organization"] = org
+                commits.append(c)
+    return commits

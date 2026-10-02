@@ -1,0 +1,100 @@
+# Daily Ingest Pipeline
+#
+# Runs every day at midnight Nepal Standard Time (NST = UTC+5:45).
+# UTC equivalent: 18:15 UTC (i.e. 00:00 NST the following calendar day).
+#
+# Task graph:
+#   daily_ingest_setup
+#       └── vyaguta_bronze          (depends on daily_ingest_setup)
+#               ├── project_github_bronze   (depends on vyaguta_bronze)
+#               └── jira_bronze             (depends on vyaguta_bronze)
+#
+# Task 1 — vyaguta_bronze:
+#   Calls the Vyaguta API (mock) to extract all projects along with their
+#   GitHub repository URLs, Jira project keys, and team membership. Each
+#   project maps to one or more repositories. Results are upserted into
+#   vyaguta_bronze_projects.
+#
+# Task 2a — project_github_bronze:
+#   Reads the project-repository list from vyaguta_bronze_projects, then
+#   fetches the past 24 hours of commits from the GitHub API (mock) for
+#   each repository. Results are upserted into github_bronze_project_commits,
+#   enriched with project_id and project_name from Vyaguta.
+#
+# Task 2b — jira_bronze:
+#   Reads the project list from vyaguta_bronze_projects, then fetches JIRA
+#   issues updated in the past 24 hours (mock) for each project key. Results
+#   are upserted into jira_bronze_issues, enriched with project context.
+
+resources:
+  jobs:
+    daily_ingest_pipeline:
+      name: daily_ingest_pipeline
+
+      schedule:
+        # Midnight Nepal Standard Time (NST = UTC+5:45) = 18:15 UTC
+        quartz_cron_expression: "0 15 18 * * ?"
+        timezone_id: UTC
+        # Equivalent local time: 00:00 Asia/Kathmandu (next calendar day)
+        # NST = UTC+5:45 → 00:00 NST = 18:15 UTC of the previous day
+
+      parameters:
+        - name: catalog
+          default: ${var.catalog}
+        - name: schema
+          default: ${var.schema}
+        # processing_date defaults to yesterday; override for backfill runs
+        - name: processing_date
+          default: "yesterday"
+
+      tasks:
+        - task_key: daily_ingest_setup
+          python_wheel_task:
+            package_name: leapfrog_pulse
+            entry_point: daily_ingest_setup
+            named_parameters:
+              catalog: "{{job.parameters.catalog}}"
+              schema: "{{job.parameters.schema}}"
+          environment_key: default
+
+        - task_key: vyaguta_bronze
+          depends_on:
+            - task_key: daily_ingest_setup
+          python_wheel_task:
+            package_name: leapfrog_pulse
+            entry_point: vyaguta_bronze
+            named_parameters:
+              catalog: "{{job.parameters.catalog}}"
+              schema: "{{job.parameters.schema}}"
+          environment_key: default
+
+        - task_key: project_github_bronze
+          depends_on:
+            - task_key: vyaguta_bronze
+          python_wheel_task:
+            package_name: leapfrog_pulse
+            entry_point: project_github_bronze
+            named_parameters:
+              catalog: "{{job.parameters.catalog}}"
+              schema: "{{job.parameters.schema}}"
+              processing_date: "{{job.parameters.processing_date}}"
+          environment_key: default
+
+        - task_key: jira_bronze
+          depends_on:
+            - task_key: vyaguta_bronze
+          python_wheel_task:
+            package_name: leapfrog_pulse
+            entry_point: jira_bronze
+            named_parameters:
+              catalog: "{{job.parameters.catalog}}"
+              schema: "{{job.parameters.schema}}"
+              processing_date: "{{job.parameters.processing_date}}"
+          environment_key: default
+
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "5"
+            dependencies:
+              - ../dist/leapfrog_pulse-0.0.1-py3-none-any.whl
