@@ -232,27 +232,22 @@
   .badge-good { background: #d1fae5; color: #065f46; }
   .badge-bad  { background: #fee2e2; color: #991b1b; }
 
-  /* ── TEAM PERFORMANCE ── */
-  .tp-table { width: 100%; border-collapse: collapse; }
-  .tp-table th {
+  /* ── PROJECT PERFORMANCE ── */
+  .pp-table { width: 100%; border-collapse: collapse; }
+  .pp-table th {
     font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;
     color: #9ca3af; font-weight: 600;
     padding: 0 8px 10px; text-align: right;
   }
-  .tp-table th:first-child { text-align: left; }
-  .tp-table td {
+  .pp-table th:first-child { text-align: left; }
+  .pp-table td {
     padding: 9px 8px;
     font-size: 13px;
     color: #374151;
     border-top: 1px solid #f3f4f6;
     text-align: right;
   }
-  .tp-table td:first-child { text-align: left; }
-  .team-badge {
-    display: inline-flex; align-items: center; gap: 7px;
-    font-weight: 600; font-size: 13px; color: #0f1c2e;
-  }
-  .team-dot { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+  .pp-table td:first-child { text-align: left; }
 
   /* ── PROJECT HEALTH ── */
   .ph-table { width: 100%; border-collapse: collapse; }
@@ -433,10 +428,6 @@
       Projects
     </a>
     <a class="nav-item" href="#">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-      Teams
-    </a>
-    <a class="nav-item" href="#">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
       Members
     </a>
@@ -492,20 +483,13 @@
   <div class="page-header">
     <div>
       <h1>Engineering Intelligence</h1>
-      <p>Unified view of code, work, teams and people — powered by Vyaguta + external tools</p>
+      <p>Unified view of code, projects and people — powered by Vyaguta + external tools</p>
     </div>
     <div class="header-controls">
       <select>
         <option>Last 30 days</option>
         <option>Last 7 days</option>
         <option>Last 90 days</option>
-      </select>
-      <select>
-        <option>All Teams</option>
-        <option>Payments</option>
-        <option>Mobile</option>
-        <option>Analytics</option>
-        <option>Platform</option>
       </select>
     </div>
   </div>
@@ -570,7 +554,7 @@
       </div>
     </div>
 
-    <!-- ROW 2: ENGINEERING HEALTH + TEAM PERFORMANCE -->
+    <!-- ROW 2: ENGINEERING HEALTH + PROJECT PERFORMANCE -->
     <div class="section-row row-2">
 
       <!-- Engineering Health -->
@@ -598,15 +582,15 @@
         </div>
       </div>
 
-      <!-- Team Performance -->
+      <!-- Project Performance -->
       <div class="card">
-        <div class="card-title">Team Performance</div>
+        <div class="card-title">Project Performance</div>
         <div style="margin-bottom:14px"></div>
-        <table class="tp-table">
+        <table class="pp-table">
           <thead>
             <tr>
-              <th>Team</th>
-              <th>Active Devs</th>
+              <th>Project</th>
+              <th>Health Score</th>
               <th>Open Issues</th>
               <th>Commits (30d)</th>
               <th>In Progress</th>
@@ -628,7 +612,6 @@
           <thead>
             <tr>
               <th>Project</th>
-              <th>Team</th>
               <th>Health Score</th>
               <th>Commits (30d)</th>
               <th>Bugs Open</th>
@@ -687,7 +670,6 @@
           <thead>
             <tr>
               <th>Project</th>
-              <th>Team</th>
               <th>Lines Added</th>
               <th>Lines Removed</th>
               <th>Health</th>
@@ -799,15 +781,8 @@
   });
 
   // ─── Helpers ───────────────────────────────────────────────────────────────
-  const TEAM_COLORS = {
-    'Payments': '#f59e0b', 'Core Platform': '#3b82f6', 'Mobile App': '#3b82f6',
-    'Analytics': '#8b5cf6', 'Internal Tools': '#10b981', 'Platform': '#06b6d4',
-    'HealthTech': '#3b82f6', 'FinTech': '#f59e0b', 'EdTech': '#8b5cf6',
-    'Enterprise': '#10b981', 'Engineering Intelligence': '#06b6d4',
-  };
   const COLOR_PALETTE = ['#f59e0b','#3b82f6','#8b5cf6','#10b981','#06b6d4','#ef4444'];
-  function teamColor(name) {
-    if (TEAM_COLORS[name]) return TEAM_COLORS[name];
+  function projectColor(name) {
     let h = 0;
     for (let i = 0; i < (name||'').length; i++) h = (h * 31 + name.charCodeAt(i)) % COLOR_PALETTE.length;
     return COLOR_PALETTE[h];
@@ -891,17 +866,18 @@
     }
   }
 
-  function renderTeams(teams) {
-    const tbody = document.querySelector('.tp-table tbody');
+  function renderProjectPerformance(projects) {
+    const tbody = document.querySelector('.pp-table tbody');
     if (!tbody) return;
-    tbody.innerHTML = teams.map(t => {
-      const color = t.color || teamColor(t.name);
+    tbody.innerHTML = projects.map(p => {
+      const hs = p.healthScore;
+      const hbCls = healthBadgeClass(hs);
       return `<tr>
-        <td><span class="team-badge"><span class="team-dot" style="background:${color}"></span>${escHtml(t.name)}</span></td>
-        <td>${fmt(t.activeDevelopers != null ? t.activeDevelopers : t.members)}</td>
-        <td>${fmt(t.openIssues != null ? t.openIssues : t.tickets)}</td>
-        <td>${fmt(t.commits30d != null ? t.commits30d : t.prs)}</td>
-        <td>${fmt(t.inProgress != null ? t.inProgress : t.incidents)}</td>
+        <td style="font-weight:600;color:#0f1c2e">${escHtml(p.name)}</td>
+        <td>${hs != null ? `<span class="health-badge ${hbCls}">${hs}</span>` : '—'}</td>
+        <td>${fmt(p.openIssues)}</td>
+        <td>${fmt(p.commits30d)}</td>
+        <td>${fmt(p.inProgress)}</td>
       </tr>`;
     }).join('');
   }
@@ -910,12 +886,11 @@
     const tbody = document.querySelector('.ph-table tbody');
     if (!tbody) return;
     tbody.innerHTML = projects.map(p => {
-      const color = p.color || teamColor(p.team);
+      const color = p.color || projectColor(p.name);
       const hs    = p.healthScore;
       const hbCls = healthBadgeClass(hs);
       return `<tr>
         <td><span class="proj-name"><span class="proj-dot" style="background:${color}"></span>${escHtml(p.name)}</span></td>
-        <td style="color:#6b7280">${escHtml(p.team)}</td>
         <td>${hs != null ? `<span class="health-badge ${hbCls}">${hs}</span>` : '—'}</td>
         <td>${fmt(p.commits30d)}</td>
         <td><span class="incident-badge ${incClass(p.bugs || 0)}">${p.bugs != null ? p.bugs : '—'}</span></td>
@@ -1013,7 +988,7 @@
     const tbody = document.getElementById('churn-tbody');
     if (!tbody) return;
     if (!items || items.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="5" style="color:#9ca3af;text-align:center;padding:16px">No data — run the pipeline first</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="4" style="color:#9ca3af;text-align:center;padding:16px">No data — run the pipeline first</td></tr>`;
       return;
     }
     tbody.innerHTML = items.map(v => {
@@ -1021,7 +996,6 @@
       const hbCls = healthBadgeClass(hs);
       return `<tr>
         <td style="font-weight:600;color:#0f1c2e">${escHtml(v.projectName)}</td>
-        <td style="color:#6b7280">${escHtml(v.team)}</td>
         <td><span class="churn-add">+${fmt(v.linesAdded)}</span></td>
         <td><span class="churn-del">-${fmt(v.linesRemoved)}</span></td>
         <td>${hs != null ? `<span class="health-badge ${hbCls}">${hs}</span>` : '—'}</td>
@@ -1045,11 +1019,10 @@
 
   async function initDashboard() {
     try {
-      const [kpis, health, teams, projects, velocity, timeDist, activity, vyaguta, insights] =
+      const [kpis, health, projects, velocity, timeDist, activity, vyaguta, insights] =
         await Promise.all([
           fetch('/api/kpis').then(r => r.json()),
           fetch('/api/health').then(r => r.json()),
-          fetch('/api/teams').then(r => r.json()),
           fetch('/api/projects').then(r => r.json()),
           fetch('/api/velocity').then(r => r.json()),
           fetch('/api/time-distribution').then(r => r.json()),
@@ -1060,7 +1033,7 @@
 
       renderKPIs(kpis);
       renderHealth(health);
-      renderTeams(teams);
+      renderProjectPerformance(projects);
       renderProjects(projects);
       renderVelocity(velocity);
       renderChurn(velocity);

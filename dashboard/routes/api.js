@@ -87,7 +87,7 @@ router.get("/health", async (_req, res) => {
       { label: "Deployment Frequency",   value: deployFreq != null ? `${deployFreq.toFixed(2)}/day` : "—",      change: null, goodDown: false },
       { label: "Bug Rate",               value: bugRate != null ? `${bugRate}%` : "—",                          change: null, goodDown: true  },
       { label: "Avg. Incident Recovery", value: "—",                                                            change: null, goodDown: true  },
-      { label: "Team Velocity",          value: velocityValue,                                                   change: null, goodDown: false },
+      { label: "Project Velocity",       value: velocityValue,                                                   change: null, goodDown: false },
     ],
   });
 });

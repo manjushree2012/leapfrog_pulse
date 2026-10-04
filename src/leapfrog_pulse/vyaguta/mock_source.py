@@ -24,7 +24,6 @@ _PROJECTS = [
     {
         "project_id":   "proj-001",
         "project_name": "HealthTrack Platform",
-        "team":         "HealthTech",
         "status":       "active",
         "github_repos": [
             "https://github.com/leapfrogonline/healthtrack-api",
@@ -35,7 +34,6 @@ _PROJECTS = [
     {
         "project_id":   "proj-002",
         "project_name": "FinEdge Analytics",
-        "team":         "FinTech",
         "status":       "active",
         "github_repos": [
             "https://github.com/leapfrogonline/finedge-analytics",
@@ -46,7 +44,6 @@ _PROJECTS = [
     {
         "project_id":   "proj-003",
         "project_name": "EduConnect LMS",
-        "team":         "EdTech",
         "status":       "active",
         "github_repos": [
             "https://github.com/leapfrogonline/educonnect-backend",
@@ -58,7 +55,6 @@ _PROJECTS = [
     {
         "project_id":   "proj-004",
         "project_name": "LogiTrack Supply Chain",
-        "team":         "Enterprise",
         "status":       "active",
         "github_repos": [
             "https://github.com/leapfrogonline/logitrack-core",
@@ -69,7 +65,6 @@ _PROJECTS = [
     {
         "project_id":   "proj-005",
         "project_name": "DevPulse Internal",
-        "team":         "Engineering Intelligence",
         "status":       "active",
         "github_repos": [
             "https://github.com/leapfrogonline/leapfrog_pulse",
@@ -79,7 +74,6 @@ _PROJECTS = [
     {
         "project_id":   "proj-006",
         "project_name": "RetailPro POS",
-        "team":         "Retail",
         "status":       "archived",
         "github_repos": [
             "https://github.com/leapfrogonline/retailpro-pos",
@@ -94,7 +88,6 @@ _PROJECTS = [
 RECORD_SCHEMA = [
     "project_id",  # str  — stable unique identifier
     "project_name",  # str
-    "team",  # str  — internal team name
     "status",  # str  — "active" | "archived"
     "github_repo_url",  # str  — one row per repo (exploded from github_repos)
     "jira_project_key",  # str  — Jira project key; used to look up issues later
@@ -116,7 +109,6 @@ def _explode_project(project: dict) -> list[dict]:
             {
                 "project_id": project["project_id"],
                 "project_name": project["project_name"],
-                "team": project["team"],
                 "status": project["status"],
                 "github_repo_url": repo_url,
                 "jira_project_key": project["jira_project_key"],
@@ -127,85 +119,70 @@ def _explode_project(project: dict) -> list[dict]:
     return rows
 
 
-_TEAM_MEMBERS = [
-    # HealthTech
+_PROJECT_MEMBERS = [
     {
         "project_id": "proj-001",
         "employee_name": "Aryan Sharma",
         "employee_email": "aryan.sharma@lftechnology.com",
         "role": "Backend Engineer",
-        "team": "HealthTech",
     },
     {
         "project_id": "proj-001",
         "employee_name": "Priya Patel",
         "employee_email": "priya.patel@lftechnology.com",
         "role": "Frontend Engineer",
-        "team": "HealthTech",
     },
-    # FinTech
     {
         "project_id": "proj-002",
         "employee_name": "Bikash Thapa",
         "employee_email": "bikash.thapa@lftechnology.com",
         "role": "Full Stack Engineer",
-        "team": "FinTech",
     },
     {
         "project_id": "proj-002",
         "employee_name": "Sanjana Rai",
         "employee_email": "sanjana.rai@lftechnology.com",
         "role": "Backend Engineer",
-        "team": "FinTech",
     },
-    # EdTech
     {
         "project_id": "proj-003",
         "employee_name": "Diwas Gurung",
         "employee_email": "diwas.gurung@lftechnology.com",
         "role": "Full Stack Engineer",
-        "team": "EdTech",
     },
     {
         "project_id": "proj-003",
         "employee_name": "Aryan Sharma",
         "employee_email": "aryan.sharma@lftechnology.com",
         "role": "Tech Lead",
-        "team": "EdTech",
     },
-    # Enterprise
     {
         "project_id": "proj-004",
         "employee_name": "Priya Patel",
         "employee_email": "priya.patel@lftechnology.com",
         "role": "Backend Engineer",
-        "team": "Enterprise",
     },
     {
         "project_id": "proj-004",
         "employee_name": "Bikash Thapa",
         "employee_email": "bikash.thapa@lftechnology.com",
         "role": "DevOps Engineer",
-        "team": "Enterprise",
     },
-    # Engineering Intelligence
     {
         "project_id": "proj-005",
         "employee_name": "Sanjana Rai",
         "employee_email": "sanjana.rai@lftechnology.com",
         "role": "Data Engineer",
-        "team": "Engineering Intelligence",
     },
     {
         "project_id": "proj-005",
         "employee_name": "Diwas Gurung",
         "employee_email": "diwas.gurung@lftechnology.com",
         "role": "Backend Engineer",
-        "team": "Engineering Intelligence",
     },
 ]
 
-MEMBER_SCHEMA = ["project_id", "employee_name", "employee_email", "role", "team", "company"]
+MEMBER_SCHEMA = ["project_id", "employee_name", "employee_email", "role", "company"]
 
 
 def get_all_projects() -> list[dict]:
@@ -222,15 +199,15 @@ def get_all_projects() -> list[dict]:
     return rows
 
 
-def get_team_members() -> list[dict]:
-    """Return all team members with project assignments.
+def get_project_members() -> list[dict]:
+    """Return all project members with project assignments.
 
     Each record represents one (employee, project) pair. Output is fully
     deterministic. This is the integration point — replace with a real Vyaguta
     API call to go live.
     """
     rows = []
-    for member in _TEAM_MEMBERS:
+    for member in _PROJECT_MEMBERS:
         rows.append({**member, "company": COMPANY})
     return rows
 
@@ -243,7 +220,7 @@ def get_unique_engineers() -> list[dict]:
     """
     seen_emails = set()
     rows = []
-    for member in _TEAM_MEMBERS:
+    for member in _PROJECT_MEMBERS:
         if member["employee_email"] not in seen_emails:
             rows.append({**member, "company": COMPANY})
             seen_emails.add(member["employee_email"])
