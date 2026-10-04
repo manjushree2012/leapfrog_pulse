@@ -267,10 +267,21 @@ cd capstone
 ### 2. Install dependencies
 
 ```bash
+cd dashboard
 npm install
 ```
 
-### 3. Start the development server
+### 3. Configure AI Key Insights (optional)
+
+The dashboard's Key Insights panel uses the Google Gemini API with aggregated data from `dashboard_gold_kpis`, `dashboard_gold_project_summary`, and `dashboard_gold_time_allocation`. Create an API key in [Google AI Studio](https://aistudio.google.com/app/apikey). From the `dashboard` directory, copy `.env.example` to `.env` only if you do not already have a `.env` file:
+
+```bash
+copy .env.example .env
+```
+
+Add or update `GEMINI_API_KEY` in `dashboard/.env` and retain any existing Databricks settings. `GEMINI_MODEL` defaults to `gemini-2.5-flash` and can be changed if needed. The `.env` file is git-ignored; keep the key private and do not put it in browser code. Aggregated project and organization metrics are sent to Google Gemini, so confirm this use is permitted by your organization's data policies. Without a key, the panel explains how to configure AI insights.
+
+### 4. Start the development server
 
 ```bash
 node server.js
@@ -278,7 +289,7 @@ node server.js
 
 Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-### 4. (Optional) Run the Databricks pipeline
+### 5. (Optional) Run the Databricks pipeline
 
 Upload and run the notebooks in order inside your Databricks workspace:
 
@@ -302,9 +313,9 @@ All endpoints are served by `server.js` at `http://localhost:3000`.
 | `GET /api/time-distribution` | Worklog hour breakdown by category (Feature, Bug Fix, etc.) |
 | `GET /api/activity` | Cross-platform activity timeline items |
 | `GET /api/vyaguta` | Vyaguta org context KPIs (attendance, feedback, member count) |
-| `GET /api/insights` | Key insight strings for the Insights panel |
+| `GET /api/insights` | Gemini-generated key insights grounded in dashboard Gold metrics |
 
-All endpoints currently return static mock data. The data shapes are designed to be drop-in replaceable with Databricks SQL queries against the Gold layer.
+Dashboard data is served through the Express API, which queries the Databricks Gold tables when configured.
 
 ---
 

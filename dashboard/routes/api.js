@@ -2,6 +2,10 @@ const { Router } = require("express");
 const router = Router();
 const vy = require("../data/vyaguta");
 const db = require("../data/databricks");
+const { generateInsights } = require("../services/gemini");
+
+const INSIGHTS_CACHE_TTL_MS = 10 * 60 * 1000;
+const insightsCache = new Map();
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -410,41 +414,94 @@ router.get("/vyaguta", async (_req, res) => {
 // ─── /api/insights ───────────────────────────────────────────────────────────
 
 router.get("/insights", async (req, res) => {
+  if (!process.env.GEMINI_API_KEY?.trim()) {
+    return res.status(503).json({
+      insights: [],
+      message: "AI insights are not configured. Set GEMINI_API_KEY in dashboard/.env.",
+    });
+  }
+
   const project = selectedProject(req);
-  const [kpiRows, projRows] = await Promise.all([
+  const [kpiRows, projRows, allocationRows] = await Promise.all([
     dbQuery(`SELECT * FROM ${db.tbl("dashboard_gold_kpis")} ORDER BY kpi_date DESC LIMIT 1`, "kpis"),
     getProjectRows(project, "insights_proj"),
+    project
+      ? Promise.resolve(null)
+      : dbQuery(
+        `SELECT * FROM ${db.tbl("dashboard_gold_time_allocation")} ORDER BY allocation_date DESC LIMIT 1`,
+        "time_allocation",
+      ),
   ]);
 
-  const kpi  = kpiRows  && kpiRows[0];
-  const proj = projRows && (project
-    ? projRows[0]
-    : [...projRows].sort((a, b) => (num(a.health_score) || 0) - (num(b.health_score) || 0))[0]);
-
-  const insights = [];
-
-  if (project && proj) {
-    const metrics = summarizeProjectMetrics([proj]);
-    insights.push(`"${proj.project_name}" recorded ${fmt(proj.commits_last_30d)} commits in the last 30 days.`);
-    insights.push(`${fmt(proj.open_issues)} issues remain open${metrics.bugRate != null ? `, with a ${metrics.bugRate.toFixed(1)}% bug rate` : ""}.`);
-    insights.push(`Project health is ${fmt(proj.health_score)}/100.`);
-  } else if (kpi) {
-    insights.push(`${fmt(kpi.total_commits_30d)} commits across ${fmt(kpi.active_projects)} active projects in the last 30 days.`);
-    insights.push(`${fmt(kpi.done_issues_30d)} JIRA issues resolved in the last 30 days (${fmt(kpi.total_open_issues)} still open).`);
-    if (num(kpi.total_bugs) > 0) insights.push(`${fmt(kpi.total_bugs)} bugs tracked across all projects.`);
-    if (num(kpi.active_developers) > 0) insights.push(`${fmt(kpi.active_developers)} developers made commits in the last 30 days.`);
+  const kpi = kpiRows && kpiRows[0];
+  if (!kpi || !projRows) {
+    return res.status(503).json({
+      insights: [],
+      message: "Gold table data is unavailable. Check the Databricks connection and run the dashboard pipeline.",
+    });
   }
 
-  if (!project && proj) insights.push(`"${proj.project_name}" has the lowest health score (${proj.health_score}/100) — ${proj.bugs_count} open bugs.`);
-
-  if (insights.length === 0) {
-    insights.push(
-      "Run the daily_ingest_pipeline job to populate live data.",
-      "Dashboard gold tables are currently empty.",
-    );
+  if (projRows.length === 0) {
+    return res.json({
+      insights: [],
+      message: project
+        ? `No gold-table metrics are available for ${project}.`
+        : "Dashboard gold tables are empty. Run the dashboard pipeline first.",
+    });
   }
 
-  res.json(insights);
+  const fields = (row, names) => Object.fromEntries(names.map((name) => [name, row[name] ?? null]));
+  const context = {
+    scope: project ? "selected project, with organization KPIs as context" : "whole organization",
+    selected_project: project,
+    organization_kpis: fields(kpi, [
+      "kpi_date", "total_commits_30d", "active_developers", "active_projects", "active_repos",
+      "total_open_issues", "total_in_progress", "total_done_issues", "done_issues_30d",
+      "velocity_story_points_30d", "total_bugs", "total_stories", "total_tasks",
+      "avg_pr_review_time_hrs", "total_prs_30d", "merged_prs_30d", "deploy_frequency_30d",
+      "total_deployments_30d", "successful_deployments_30d", "org_health_score", "tracked_projects",
+    ]),
+    projects: projRows.map((row) => fields(row, [
+      "project_name", "team", "repo_count", "commits_last_30d", "active_developers",
+      "lines_added_30d", "lines_removed_30d", "open_issues", "in_progress_issues",
+      "done_issues", "bugs_count", "stories_count", "tasks_count", "avg_story_points",
+      "sprint_name", "done_issues_last_30d", "avg_lead_time_days", "merged_prs_last_30d",
+      "avg_pr_review_time_hrs", "deploy_frequency_30d", "ci_checks_total", "ci_checks_failed",
+      "resolved_incidents", "avg_incident_recovery_hrs", "health_score", "as_of_date",
+    ])),
+    organization_time_allocation: !project && allocationRows && allocationRows[0]
+      ? fields(allocationRows[0], [
+        "allocation_date", "feature_work_hours", "bug_fixing_hours", "code_review_hours",
+        "meeting_hours", "other_hours", "total_allocated_hours", "eligible_working_hours",
+        "engineer_count", "coverage_score",
+      ])
+      : null,
+  };
+  const cacheKey = project || "__organization__";
+  const fingerprint = JSON.stringify(context);
+  const cached = insightsCache.get(cacheKey);
+  if (cached && cached.fingerprint === fingerprint && Date.now() < cached.expiresAt) {
+    return res.json(cached.response);
+  }
+
+  try {
+    const response = {
+      insights: await generateInsights(context),
+      message: null,
+    };
+    insightsCache.set(cacheKey, {
+      fingerprint,
+      response,
+      expiresAt: Date.now() + INSIGHTS_CACHE_TTL_MS,
+    });
+    res.json(response);
+  } catch (err) {
+    console.error("[insights] Gemini request failed:", err.message);
+    res.status(502).json({
+      insights: [],
+      message: "AI insights could not be generated. Check the Gemini API key, model, and service availability.",
+    });
+  }
 });
 
 module.exports = router;
