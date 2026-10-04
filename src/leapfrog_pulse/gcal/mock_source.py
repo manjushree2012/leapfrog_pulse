@@ -24,13 +24,9 @@ Event eligibility rules (configurable, applied before returning):
 import hashlib
 from datetime import date, datetime, timedelta
 
-_ENGINEERS = [
-    "aryan.sharma@lftechnology.com",
-    "priya.patel@lftechnology.com",
-    "bikash.thapa@lftechnology.com",
-    "sanjana.rai@lftechnology.com",
-    "diwas.gurung@lftechnology.com",
-]
+from leapfrog_pulse.vyaguta.mock_source import get_unique_engineers
+
+_ENGINEERS = [engineer["employee_email"] for engineer in get_unique_engineers()]
 
 _MEETING_TEMPLATES = [
     {"title": "Daily Standup", "category": "standup", "duration_minutes": 15, "min_attendees": 3, "max_attendees": 5},
@@ -92,12 +88,13 @@ def _build_event(template_idx: int, dt: date, event_idx: int) -> dict:
     end_at = start_at + timedelta(minutes=duration_minutes)
 
     # Attendees: deterministic subset of _ENGINEERS
-    attendee_count = _h(f"att-count-{seed}", template["max_attendees"] - template["min_attendees"] + 1) + template["min_attendees"]
-    attendee_emails = []
-    for i in range(attendee_count):
-        attendee_idx = _h(f"att-{seed}-{i}", len(_ENGINEERS))
-        attendee_emails.append(_ENGINEERS[attendee_idx])
-    attendee_emails = list(set(attendee_emails))[:attendee_count]  # Deduplicate and limit
+    attendee_count = min(
+        len(_ENGINEERS),
+        _h(f"att-count-{seed}", template["max_attendees"] - template["min_attendees"] + 1)
+        + template["min_attendees"],
+    )
+    attendee_emails = sorted(_ENGINEERS, key=lambda email: (_h(f"att-{seed}-{email}", len(_ENGINEERS)), email))
+    attendee_emails = attendee_emails[:attendee_count]
 
     # Acceptance rate: ~80% accept
     accepted_count = 0
@@ -108,6 +105,8 @@ def _build_event(template_idx: int, dt: date, event_idx: int) -> dict:
     # Status: ~85% confirmed, ~15% cancelled
     is_cancelled = _h(f"status-{seed}", 100) >= 85
     status = "cancelled" if is_cancelled else "confirmed"
+    if status == "confirmed" and attendee_emails and accepted_count == 0:
+        accepted_count = 1
 
     # Organizer is a random engineer
     organizer_email = _ENGINEERS[_h(f"org-{seed}", len(_ENGINEERS))]
