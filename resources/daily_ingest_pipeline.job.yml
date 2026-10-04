@@ -9,28 +9,33 @@
 #       └── vyaguta_bronze
 #               ├── vyaguta_silver → vyaguta_gold ──────────────────────────────────────────────────────────────────────┐
 #               ├── project_github_bronze → project_github_silver → project_github_gold ────────────────────────────────┤
-#               ├── project_github_pr_bronze → project_github_pr_silver → project_github_pr_gold ───────────────────────┤→ dashboard_gold
+#               ├── project_github_pr_bronze → project_github_pr_silver → project_github_pr_gold ───────────────────────┤
 #               ├── project_github_deployment_bronze → project_github_deployment_silver → project_github_deployment_gold ┤
-#               └── jira_bronze → jira_silver → jira_gold ────────────────────────────────────────────────────────────────┘
+#               ├── jira_bronze → jira_silver → jira_gold ────────────────────────────────────────────────────────────────┤→ dashboard_gold
+#               └── gcal_bronze → gcal_silver → gcal_gold ────────────────────────────────────────────────────────────────┘
 #
 # Bronze layer:
 #   vyaguta_bronze          — fetches all active projects from Vyaguta (mock), writes vyaguta_bronze_projects
 #   project_github_bronze   — per-project GitHub commits for the day, writes github_bronze_project_commits
 #   jira_bronze             — per-project JIRA issues for the day, writes jira_bronze_issues
+#   gcal_bronze             — per-day Google Calendar events, writes gcal_bronze_events
 #
 # Silver layer (validated + normalized):
 #   vyaguta_silver          — writes vyaguta_silver_projects
 #   project_github_silver   — writes github_silver_project_commits
 #   jira_silver             — writes jira_silver_issues
+#   gcal_silver             — writes gcal_silver_events (engineering meetings only)
 #
 # Gold layer (aggregated analytics):
 #   vyaguta_gold            — writes vyaguta_gold_project_catalogue (active projects only)
 #   project_github_gold     — writes github_gold_project_daily_metrics (per developer/repo/project)
 #   jira_gold               — writes jira_gold_project_daily_metrics (issue counts by status/type)
+#   gcal_gold               — writes gcal_gold_daily_meeting_hours (meeting hours by category)
 #
 # Dashboard mart:
 #   dashboard_gold          — writes dashboard_gold_project_summary, dashboard_gold_kpis,
-#                             dashboard_gold_recent_activity (feeds /api/* endpoints)
+#                             dashboard_gold_recent_activity, dashboard_gold_time_allocation
+#                             (feeds /api/* endpoints)
 
 resources:
   jobs:
@@ -170,6 +175,42 @@ resources:
               processing_date: "{{job.parameters.processing_date}}"
           environment_key: default
 
+        - task_key: gcal_bronze
+          depends_on:
+            - task_key: daily_ingest_setup
+          python_wheel_task:
+            package_name: leapfrog_pulse
+            entry_point: gcal_bronze
+            named_parameters:
+              catalog: "{{job.parameters.catalog}}"
+              schema: "{{job.parameters.schema}}"
+              processing_date: "{{job.parameters.processing_date}}"
+          environment_key: default
+
+        - task_key: gcal_silver
+          depends_on:
+            - task_key: gcal_bronze
+          python_wheel_task:
+            package_name: leapfrog_pulse
+            entry_point: gcal_silver
+            named_parameters:
+              catalog: "{{job.parameters.catalog}}"
+              schema: "{{job.parameters.schema}}"
+              processing_date: "{{job.parameters.processing_date}}"
+          environment_key: default
+
+        - task_key: gcal_gold
+          depends_on:
+            - task_key: gcal_silver
+          python_wheel_task:
+            package_name: leapfrog_pulse
+            entry_point: gcal_gold
+            named_parameters:
+              catalog: "{{job.parameters.catalog}}"
+              schema: "{{job.parameters.schema}}"
+              processing_date: "{{job.parameters.processing_date}}"
+          environment_key: default
+
         - task_key: project_github_pr_bronze
           depends_on:
             - task_key: vyaguta_bronze
@@ -250,6 +291,7 @@ resources:
             - task_key: project_github_pr_gold
             - task_key: project_github_deployment_gold
             - task_key: jira_gold
+            - task_key: gcal_gold
           python_wheel_task:
             package_name: leapfrog_pulse
             entry_point: dashboard_gold

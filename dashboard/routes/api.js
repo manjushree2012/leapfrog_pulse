@@ -194,43 +194,53 @@ router.get("/velocity", async (_req, res) => {
 // ─── /api/time-distribution ──────────────────────────────────────────────────
 
 router.get("/time-distribution", async (_req, res) => {
-  const rows = await dbQuery(
-    `SELECT * FROM ${db.tbl("dashboard_gold_kpis")} ORDER BY kpi_date DESC LIMIT 1`,
-    "kpis",
-  );
-  const r = rows && rows[0];
+  let rows = null;
+  try {
+    rows = await dbQuery(
+      `SELECT * FROM ${db.tbl("dashboard_gold_time_allocation")} ORDER BY allocation_date DESC LIMIT 1`,
+      "time_allocation",
+    );
+  } catch (_) {}
 
+  const r = rows && rows[0];
   if (!r) {
+    // Static fallback with hours-based data
     return res.json({
       total: "—",
+      allocated: "—",
+      coverage: null,
       breakdown: [
-        { label: "Feature work",  color: "#3b82f6", pct: 38 },
-        { label: "Bug fixing",    color: "#ef4444", pct: 15 },
-        { label: "Tasks / Ops",   color: "#f59e0b", pct: 16 },
-        { label: "Other",         color: "#d1d5db", pct: 31 },
+        { label: "Feature Work",  color: "#3b82f6", pct: 38, hours: null },
+        { label: "Code Reviews",  color: "#8b5cf6", pct: 12, hours: null },
+        { label: "Bug Fixing",    color: "#ef4444", pct: 15, hours: null },
+        { label: "Meetings",      color: "#f59e0b", pct: 20, hours: null },
+        { label: "Others",        color: "#d1d5db", pct: 15, hours: null },
       ],
     });
   }
 
-  const stories  = num(r.total_stories)  || 0;
-  const bugs     = num(r.total_bugs)     || 0;
-  const tasks    = num(r.total_tasks)    || 0;
-  const total    = stories + bugs + tasks;
+  const eligible  = num(r.eligible_working_hours) || 0;
+  const feature   = num(r.feature_work_hours) || 0;
+  const review    = num(r.code_review_hours)  || 0;
+  const bugs      = num(r.bug_fixing_hours)   || 0;
+  const meetings  = num(r.meeting_hours)      || 0;
+  const others    = num(r.other_hours)        || 0;
+  const allocated = num(r.total_allocated_hours) || 0;
 
-  const pct = (v) => total > 0 ? Math.round((v / total) * 100) : 0;
-  const storiesPct = pct(stories);
-  const bugsPct    = pct(bugs);
-  const tasksPct   = pct(tasks);
-  const otherPct   = Math.max(0, 100 - storiesPct - bugsPct - tasksPct);
+  const pct = (h) => allocated > 0 ? Math.round((h / allocated) * 100) : 0;
 
   res.json({
-    total: fmt(total) + " issues",
+    total:     eligible > 0 ? `${Math.round(eligible)}h eligible` : "—",
+    allocated: allocated > 0 ? `${Math.round(allocated)}h allocated` : "—",
+    coverage:  num(r.coverage_score),
+    featureSource: r.feature_source || null,
     breakdown: [
-      { label: "Feature Stories", color: "#3b82f6", pct: storiesPct },
-      { label: "Bug Fixes",       color: "#ef4444", pct: bugsPct    },
-      { label: "Tasks / Ops",     color: "#f59e0b", pct: tasksPct   },
-      { label: "Other",           color: "#d1d5db", pct: otherPct   },
-    ].filter((b) => b.pct > 0),
+      { label: "Feature Work",  color: "#3b82f6", pct: pct(feature),  hours: Math.round(feature)  },
+      { label: "Code Reviews",  color: "#8b5cf6", pct: pct(review),   hours: Math.round(review)   },
+      { label: "Bug Fixing",    color: "#ef4444", pct: pct(bugs),     hours: Math.round(bugs)     },
+      { label: "Meetings",      color: "#f59e0b", pct: pct(meetings), hours: Math.round(meetings) },
+      { label: "Others",        color: "#d1d5db", pct: pct(others),   hours: Math.round(others)   },
+    ].filter((b) => b.pct > 0 || b.hours > 0),
   });
 });
 

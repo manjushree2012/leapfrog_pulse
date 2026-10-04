@@ -342,6 +342,7 @@
   }
   .donut-total { font-size: 11px; color: #6b7280; text-align: center; line-height: 1.3; }
   .donut-total strong { font-size: 13px; font-weight: 700; color: #0f1c2e; display: block; }
+  .donut-sub { font-size: 10px; color: #9ca3af; display: block; margin-top: 1px; }
   .time-legend { display: flex; flex-direction: column; gap: 7px; flex: 1; }
   .legend-item { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
   .legend-left { display: flex; align-items: center; gap: 7px; }
@@ -926,7 +927,14 @@
     const holeEl   = document.querySelector('.donut-hole strong');
     const donutEl  = document.querySelector('.donut-bg');
     const legendEl = document.querySelector('.time-legend');
-    if (holeEl) holeEl.textContent = `~${d.total}`;
+    const totalEl  = document.querySelector('.donut-total');
+
+    if (holeEl) holeEl.textContent = d.allocated || d.total || '—';
+    if (totalEl) {
+      const subEl = totalEl.querySelector('.donut-sub') || Object.assign(document.createElement('span'), { className: 'donut-sub' });
+      subEl.textContent = d.total ? `of ${d.total}` : 'allocated';
+      if (!totalEl.querySelector('.donut-sub')) totalEl.appendChild(subEl);
+    }
     if (donutEl && d.breakdown) {
       let pos = 0;
       const stops = d.breakdown.map(b => {
@@ -940,9 +948,25 @@
       legendEl.innerHTML = d.breakdown.map(b =>
         `<div class="legend-item">
           <div class="legend-left"><div class="legend-dot" style="background:${b.color}"></div><span class="legend-label">${escHtml(b.label)}</span></div>
-          <span class="legend-pct">${b.pct}%</span>
+          <div style="display:flex;align-items:center;gap:8px">
+            ${b.hours != null ? `<span style="font-size:11px;color:#9ca3af">${b.hours}h</span>` : ''}
+            <span class="legend-pct">${b.pct}%</span>
+          </div>
         </div>`
       ).join('');
+    }
+    // Coverage indicator
+    let coverageEl = document.querySelector('.time-coverage');
+    if (!coverageEl) {
+      coverageEl = document.createElement('div');
+      coverageEl.className = 'time-coverage';
+      const timeBodyEl = document.querySelector('.time-body');
+      if (timeBodyEl) timeBodyEl.parentNode.insertBefore(coverageEl, timeBodyEl.nextSibling);
+    }
+    if (d.coverage != null) {
+      const coverageColor = d.coverage >= 70 ? '#10b981' : d.coverage >= 40 ? '#f59e0b' : '#ef4444';
+      coverageEl.innerHTML = `<span style="font-size:11px;color:${coverageColor}">● Data coverage: ${d.coverage}%</span>${d.featureSource === 'story_point_estimate' ? '<span style="font-size:11px;color:#9ca3af;margin-left:8px">(feature/bug hours are estimates)</span>' : ''}`;
+      coverageEl.style.cssText = 'margin-top:8px;display:flex;align-items:center;gap:4px;flex-wrap:wrap';
     }
   }
 

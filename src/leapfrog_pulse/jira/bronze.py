@@ -11,7 +11,7 @@ from datetime import date, datetime, timezone
 
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql import functions as F
-from pyspark.sql.types import DateType, IntegerType, StringType, StructField, StructType, TimestampType
+from pyspark.sql.types import BooleanType, DateType, DoubleType, IntegerType, StringType, StructField, StructType, TimestampType
 
 from leapfrog_pulse.jira.mock_source import get_issues_for_project_and_date
 
@@ -31,6 +31,8 @@ _RAW_SCHEMA = StructType(
         StructField("updated_at", StringType(), True),
         StructField("story_points", IntegerType(), True),
         StructField("sprint_name", StringType(), True),
+        StructField("worklog_hours", DoubleType(), True),
+        StructField("has_worklogs", BooleanType(), True),
     ]
 )
 
@@ -92,6 +94,8 @@ def ensure_bronze_table(spark: SparkSession, catalog: str, schema: str) -> None:
             updated_at          TIMESTAMP,
             story_points        INT,
             sprint_name         STRING,
+            worklog_hours       DOUBLE,
+            has_worklogs        BOOLEAN,
             ingestion_timestamp TIMESTAMP,
             processing_date     DATE
         )

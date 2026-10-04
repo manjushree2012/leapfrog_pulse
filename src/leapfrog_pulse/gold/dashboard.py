@@ -21,11 +21,16 @@ Entry point: dashboard_gold
 """
 
 import argparse
+import calendar
 from datetime import date, datetime, timedelta, timezone
 
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql import functions as F
 from pyspark.sql.window import Window
+
+# Constants for time allocation computation
+CODE_REVIEW_HRS_PER_PR = 1.5   # estimated hours per PR review (no actual review time data)
+HOURS_PER_WORKING_DAY = 8
 
 
 # ---------------------------------------------------------------------------
@@ -393,6 +398,217 @@ def refresh_activity(spark: SparkSession, df: DataFrame, catalog: str, schema: s
 
 
 # ---------------------------------------------------------------------------
+# dashboard_gold_time_allocation
+# ---------------------------------------------------------------------------
+
+def _count_working_days(start: date, end: date) -> int:
+    """Count weekdays (Mon-Fri) in [start, end] inclusive."""
+    count = 0
+    current = start
+    while current <= end:
+        if current.weekday() < 5:  # 0-4 = Mon-Fri, 5-6 = Sat-Sun
+            count += 1
+        current += timedelta(days=1)
+    return count
+
+
+def compute_time_allocation(spark: SparkSession, catalog: str, schema: str, as_of: date) -> DataFrame:
+    """Compute time allocation metrics for the 30-day window ending as_of.
+
+    Business rules:
+    - Feature work hours = story_worklog_hours if > 0, else story_sp_hours_estimate * 0.5 (confidence discount for estimates)
+    - Bug fixing hours = bug_worklog_hours if > 0, else bug_sp_hours_estimate * 0.5
+    - Code review hours = total_prs_reviewed_30d * CODE_REVIEW_HRS_PER_PR
+    - Meeting hours = total_attendee_hours from gcal_gold_daily_meeting_hours (30d sum)
+    - Eligible hours = working_days_in_window * unique_engineers * HOURS_PER_WORKING_DAY
+    - Other hours = max(0, eligible_hours - feature_hours - bug_hours - review_hours - meeting_hours)
+    - If total allocated > eligible_hours, cap each category proportionally
+    - coverage_score = 0-100 based on data availability
+    """
+    window_start = as_of - timedelta(days=29)
+    window_end = as_of
+
+    # Count working days in [window_start, window_end]
+    working_days = _count_working_days(window_start, window_end)
+
+    # Count unique engineers from github gold (proxy for team size)
+    # If no data, use fallback of 5
+    try:
+        engineer_count_rows = spark.sql(f"""
+            SELECT COUNT(DISTINCT developer) as cnt
+            FROM `{catalog}`.`{schema}`.github_gold_project_daily_metrics
+            WHERE metric_date BETWEEN '{window_start}' AND '{window_end}'
+        """).collect()
+        engineer_count = engineer_count_rows[0]["cnt"] if engineer_count_rows and engineer_count_rows[0]["cnt"] else 5
+    except Exception:
+        engineer_count = 5
+
+    engineer_count = max(1, engineer_count)
+
+    # Eligible working hours
+    eligible_hours = working_days * engineer_count * HOURS_PER_WORKING_DAY
+
+    # Jira 30d aggregations
+    try:
+        jira_rows = spark.sql(f"""
+            SELECT
+                SUM(CAST(story_worklog_hours AS DOUBLE)) as total_story_worklog_hours,
+                SUM(CAST(bug_worklog_hours AS DOUBLE)) as total_bug_worklog_hours,
+                SUM(CAST(story_sp_hours_estimate AS DOUBLE)) as total_story_sp_hours_estimate,
+                SUM(CAST(bug_sp_hours_estimate AS DOUBLE)) as total_bug_sp_hours_estimate,
+                SUM(CAST(issues_with_worklogs AS INT)) as total_issues_with_worklogs,
+                SUM(CAST(total_issues_updated AS INT)) as total_issues_updated
+            FROM `{catalog}`.`{schema}`.jira_gold_project_daily_metrics
+            WHERE metric_date BETWEEN '{window_start}' AND '{window_end}'
+        """).collect()
+
+        jira_data = jira_rows[0] if jira_rows else {}
+        story_worklog_hours = jira_data.get("total_story_worklog_hours") or 0
+        bug_worklog_hours = jira_data.get("total_bug_worklog_hours") or 0
+        story_sp_hours_estimate = jira_data.get("total_story_sp_hours_estimate") or 0
+        bug_sp_hours_estimate = jira_data.get("total_bug_sp_hours_estimate") or 0
+        issues_with_worklogs = jira_data.get("total_issues_with_worklogs") or 0
+        total_issues_updated = jira_data.get("total_issues_updated") or 0
+    except Exception:
+        story_worklog_hours = 0
+        bug_worklog_hours = 0
+        story_sp_hours_estimate = 0
+        bug_sp_hours_estimate = 0
+        issues_with_worklogs = 0
+        total_issues_updated = 0
+
+    # Coverage for Jira
+    coverage_jira = issues_with_worklogs / total_issues_updated if total_issues_updated > 0 else 0
+
+    # Feature and bug hours with confidence adjustment
+    if story_worklog_hours > 0:
+        feature_hours = story_worklog_hours
+        feature_source = "worklogs"
+    else:
+        feature_hours = story_sp_hours_estimate * 0.5  # 50% confidence discount for estimates
+        feature_source = "story_point_estimate"
+
+    if bug_worklog_hours > 0:
+        bug_hours = bug_worklog_hours
+        bug_source = "worklogs"
+    else:
+        bug_hours = bug_sp_hours_estimate * 0.5
+        bug_source = "story_point_estimate"
+
+    # PR review hours from GitHub gold 30d
+    try:
+        pr_rows = spark.sql(f"""
+            SELECT SUM(CAST(reviewed_prs AS INT)) as total_reviewed_prs
+            FROM `{catalog}`.`{schema}`.github_gold_pr_daily_metrics
+            WHERE metric_date BETWEEN '{window_start}' AND '{window_end}'
+        """).collect()
+
+        pr_data = pr_rows[0] if pr_rows else {}
+        reviewed_prs = pr_data.get("total_reviewed_prs") or 0
+        code_review_hours = reviewed_prs * CODE_REVIEW_HRS_PER_PR
+    except Exception:
+        reviewed_prs = 0
+        code_review_hours = 0
+
+    # Meeting hours from GCal gold 30d
+    gcal_available = True
+    try:
+        # Check if table exists
+        spark.table(f"`{catalog}`.`{schema}`.gcal_gold_daily_meeting_hours")
+        gcal_rows = spark.sql(f"""
+            SELECT SUM(CAST(total_attendee_hours AS DOUBLE)) as total_meeting_hours
+            FROM `{catalog}`.`{schema}`.gcal_gold_daily_meeting_hours
+            WHERE metric_date BETWEEN '{window_start}' AND '{window_end}'
+        """).collect()
+
+        gcal_data = gcal_rows[0] if gcal_rows else {}
+        meeting_hours = gcal_data.get("total_meeting_hours") or 0
+    except Exception:
+        meeting_hours = 0
+        gcal_available = False
+
+    # Total allocated (raw)
+    total_allocated_raw = feature_hours + bug_hours + code_review_hours + meeting_hours
+
+    # Scale down if over-allocated
+    if total_allocated_raw > eligible_hours and total_allocated_raw > 0:
+        scale_factor = eligible_hours / total_allocated_raw
+        feature_hours = feature_hours * scale_factor
+        bug_hours = bug_hours * scale_factor
+        code_review_hours = code_review_hours * scale_factor
+        meeting_hours = meeting_hours * scale_factor
+
+    total_allocated = feature_hours + bug_hours + code_review_hours + meeting_hours
+    other_hours = max(0, eligible_hours - total_allocated)
+
+    # Coverage score (0-100)
+    coverage_base = 20 if issues_with_worklogs > 0 else 0  # Jira data quality
+    coverage_base += 30 if gcal_available else 0  # Calendar data
+    coverage_base += 10 if reviewed_prs > 0 else 0  # PR data
+    coverage_score = min(100, coverage_base + 40)  # Base 40 + adjustments
+
+    # Build single-row result
+    result_row = spark.createDataFrame(
+        [
+            {
+                "allocation_date": as_of,
+                "feature_work_hours": round(feature_hours, 1),
+                "bug_fixing_hours": round(bug_hours, 1),
+                "code_review_hours": round(code_review_hours, 1),
+                "meeting_hours": round(meeting_hours, 1),
+                "other_hours": round(other_hours, 1),
+                "total_allocated_hours": round(total_allocated, 1),
+                "eligible_working_hours": round(eligible_hours, 1),
+                "working_days": working_days,
+                "engineer_count": engineer_count,
+                "feature_source": feature_source,
+                "bug_source": bug_source,
+                "gcal_available": gcal_available,
+                "coverage_score": coverage_score,
+                "updated_at": _now(),
+            }
+        ]
+    )
+
+    return result_row
+
+
+def ensure_time_allocation_table(spark: SparkSession, catalog: str, schema: str) -> None:
+    spark.sql(f"""
+        CREATE TABLE IF NOT EXISTS `{catalog}`.`{schema}`.dashboard_gold_time_allocation (
+            allocation_date          DATE     NOT NULL,
+            feature_work_hours       DOUBLE,
+            bug_fixing_hours         DOUBLE,
+            code_review_hours        DOUBLE,
+            meeting_hours            DOUBLE,
+            other_hours              DOUBLE,
+            total_allocated_hours    DOUBLE,
+            eligible_working_hours   DOUBLE,
+            working_days             INT,
+            engineer_count           INT,
+            feature_source           STRING,
+            bug_source               STRING,
+            gcal_available           BOOLEAN,
+            coverage_score           INT,
+            updated_at               TIMESTAMP
+        )
+        USING DELTA
+        COMMENT 'Daily engineering time allocation: feature work, bugs, reviews, meetings, other'
+    """)
+
+
+def merge_time_allocation(spark: SparkSession, df: DataFrame, catalog: str, schema: str) -> None:
+    df.createOrReplaceTempView("_dashboard_time_allocation_staging")
+    spark.sql(f"""
+        MERGE INTO `{catalog}`.`{schema}`.dashboard_gold_time_allocation AS tgt
+        USING _dashboard_time_allocation_staging AS src
+        ON tgt.allocation_date = src.allocation_date
+        WHEN MATCHED THEN UPDATE SET *
+        WHEN NOT MATCHED THEN INSERT *
+    """)
+
+
+# ---------------------------------------------------------------------------
 # Orchestration
 # ---------------------------------------------------------------------------
 
@@ -411,6 +627,12 @@ def process_dashboard(spark: SparkSession, catalog: str, schema: str, processing
     kpis_df = compute_kpis(spark, catalog, schema, as_of)
     merge_kpis(spark, kpis_df, catalog, schema)
     print("Dashboard Gold: kpis — updated")
+
+    # Time allocation
+    ensure_time_allocation_table(spark, catalog, schema)
+    time_alloc_df = compute_time_allocation(spark, catalog, schema, as_of)
+    merge_time_allocation(spark, time_alloc_df, catalog, schema)
+    print("Dashboard Gold: time_allocation — updated")
 
     # Recent activity
     ensure_activity_table(spark, catalog, schema)

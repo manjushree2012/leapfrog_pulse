@@ -36,6 +36,20 @@ def transform_gold(df: DataFrame) -> DataFrame:
             F.sum(F.when(F.col("issue_type") == "Sub-task", 1).otherwise(0)).alias("subtasks_count"),
             F.round(F.avg(F.col("story_points")), 1).alias("avg_story_points"),
             F.sum(F.when(F.col("is_resolved"), F.coalesce("story_points", F.lit(0))).otherwise(0)).alias("resolved_story_points"),
+            F.round(
+                F.sum(F.when(F.col("issue_type") == "Story", F.coalesce(F.col("worklog_hours"), F.lit(0.0))).otherwise(0.0)), 1
+            ).alias("story_worklog_hours"),
+            F.round(
+                F.sum(F.when(F.col("is_bug"), F.coalesce(F.col("worklog_hours"), F.lit(0.0))).otherwise(0.0)), 1
+            ).alias("bug_worklog_hours"),
+            F.sum(F.when(F.col("has_worklogs"), 1).otherwise(0)).alias("issues_with_worklogs"),
+            F.round(
+                F.sum(F.when(F.col("issue_type") == "Story", F.coalesce(F.col("story_points"), F.lit(0))).otherwise(0)) * F.lit(4.0),
+                1,
+            ).alias("story_sp_hours_estimate"),
+            F.round(
+                F.sum(F.when(F.col("is_bug"), F.coalesce(F.col("story_points"), F.lit(0))).otherwise(0)) * F.lit(4.0), 1
+            ).alias("bug_sp_hours_estimate"),
             F.lit(datetime.now(timezone.utc)).cast("timestamp").alias("updated_at"),
         )
     )
@@ -63,6 +77,11 @@ def ensure_gold_table(spark: SparkSession, catalog: str, schema: str) -> None:
             subtasks_count          INT,
             avg_story_points        DOUBLE,
             resolved_story_points   INT,
+            story_worklog_hours     DOUBLE,
+            bug_worklog_hours       DOUBLE,
+            issues_with_worklogs    INT,
+            story_sp_hours_estimate DOUBLE,
+            bug_sp_hours_estimate   DOUBLE,
             updated_at              TIMESTAMP
         )
         USING DELTA

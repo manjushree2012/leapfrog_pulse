@@ -64,6 +64,8 @@ RECORD_SCHEMA = [
     "updated_at",    # str  ISO timestamp — within the processing date
     "story_points",  # int
     "sprint_name",   # str
+    "worklog_hours",   # float — total hours logged on this issue on this date (0.0 if none)
+    "has_worklogs",    # bool  — True when actual worklog data is available
 ]
 
 
@@ -93,6 +95,13 @@ def _build_issue(project_key: str, dt: date, idx: int) -> dict:
 
     sprint_num = _SPRINT_BASE + dt.isocalendar()[1]
 
+    # Worklog hours: ~60% of issues have worklogs; when present: _h(..., 14) * 0.5 + 0.5 (i.e., 0.5 to 7.0 hours)
+    has_worklog = _h(f"wl-has-{seed}", 100) < 60
+    if has_worklog:
+        worklog_hours = float(_h(f"wl-{seed}", 14) * 0.5 + 0.5)
+    else:
+        worklog_hours = 0.0
+
     return {
         "issue_key": issue_key,
         "project_key": project_key,
@@ -106,6 +115,8 @@ def _build_issue(project_key: str, dt: date, idx: int) -> dict:
         "updated_at": updated_at.isoformat(),
         "story_points": _STORY_POINTS[_h(f"sp-{seed}", len(_STORY_POINTS))],
         "sprint_name": f"Sprint {sprint_num}",
+        "worklog_hours": worklog_hours,
+        "has_worklogs": has_worklog,
     }
 
 
