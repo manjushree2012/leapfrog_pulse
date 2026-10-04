@@ -201,35 +201,40 @@ def get_pull_requests_for_repo_and_date(repo_name: str, org: str, processing_dat
         number = _pr_number(dt, repo_name, org, i)
         seed = f"pr-{pr_id}"
 
-        # Created at: between 07:00 and 14:00 on the processing_date
+        # PRs created up to five days ago may still be updated today.
+        created_days_ago = 3 if i == 0 else _h(f"prcreated_days-{seed}", 6)
         created_hour = _h(f"prcreated_h-{seed}", 8) + 7
         created_min = _h(f"prcreated_m-{seed}", 60)
-        created_at = datetime(dt.year, dt.month, dt.day, created_hour, created_min, 0)
+        created_at = datetime(dt.year, dt.month, dt.day, created_hour, created_min, 0) - timedelta(
+            days=created_days_ago
+        )
 
-        # ~75% of PRs get reviewed on the same day
-        is_reviewed = _h(f"reviewed-{seed}", 4) < 3
+        # ~75% of PRs receive a first review on the processing date.
+        is_reviewed = i == 0 or _h(f"reviewed-{seed}", 4) < 3
         first_review_at = None
         first_reviewer = None
         if is_reviewed:
             review_hours_after = _h(f"reviewlag-{seed}", 6) + 1  # 1-6 hours after creation
             review_at = datetime(
-                dt.year, dt.month, dt.day, min(created_hour + review_hours_after, 22), _h(f"reviewmin-{seed}", 60), 0
+                dt.year,
+                dt.month,
+                dt.day,
+                created_hour + review_hours_after,
+                _h(f"reviewmin-{seed}", 60),
+                0,
             )
             first_review_at = review_at.isoformat()
             dev_idx = _h(f"reviewer-{seed}", len(DEVELOPERS))
             first_reviewer = DEVELOPERS[dev_idx][0]
 
-        # ~65% of reviewed PRs are merged on the same day
-        is_merged = is_reviewed and _h(f"merged-{seed}", 10) < 7
+        # ~65% of reviewed PRs are merged; the first PR guarantees sample lead time.
+        is_merged = i == 0 or (is_reviewed and _h(f"merged-{seed}", 10) < 7)
         merged_at = None
         closed_at = None
         if is_merged and first_review_at:
             merge_min_after = _h(f"mergelag-{seed}", 120) + 15  # 15-135 min after review
             review_dt = datetime.fromisoformat(first_review_at)
-            total_minutes = review_dt.hour * 60 + review_dt.minute + merge_min_after
-            merge_hour = min(total_minutes // 60, 23)
-            merge_minute = total_minutes % 60
-            merge_ts = datetime(dt.year, dt.month, dt.day, merge_hour, merge_minute, 0)
+            merge_ts = review_dt + timedelta(minutes=merge_min_after)
             merged_at = merge_ts.isoformat()
             closed_at = merged_at
 
@@ -238,6 +243,10 @@ def get_pull_requests_for_repo_and_date(repo_name: str, org: str, processing_dat
         author_name, author_email = DEVELOPERS[author_idx]
         head_prefix = _HEAD_PREFIXES[_h(f"headprefix-{seed}", len(_HEAD_PREFIXES))]
         title = _PR_TITLES[_h(f"prtitle-{seed}", len(_PR_TITLES))]
+        ci_checks_total = _h(f"ci-total-{seed}", 4) + 3
+        ci_checks_failed = 1 if i == 0 else (
+            _h(f"ci-fail-{seed}", ci_checks_total) + 1 if _h(f"ci-failed-{seed}", 5) == 0 else 0
+        )
 
         prs.append(
             {
@@ -250,7 +259,11 @@ def get_pull_requests_for_repo_and_date(repo_name: str, org: str, processing_dat
                 "author": author_name,
                 "author_email": author_email,
                 "created_at": created_at.isoformat(),
-                "updated_at": (merged_at or first_review_at or created_at.isoformat()),
+                "updated_at": (
+                    merged_at
+                    or first_review_at
+                    or datetime(dt.year, dt.month, dt.day, created_hour, created_min, 0).isoformat()
+                ),
                 "merged_at": merged_at,
                 "closed_at": closed_at,
                 "first_review_submitted_at": first_review_at,
@@ -262,6 +275,8 @@ def get_pull_requests_for_repo_and_date(repo_name: str, org: str, processing_dat
                 "changed_files": _h(f"prfiles-{seed}", 15) + 1,
                 "is_merged": is_merged,
                 "draft": _h(f"draft-{seed}", 10) == 0,  # ~10% drafts
+                "ci_checks_total": ci_checks_total,
+                "ci_checks_failed": ci_checks_failed,
             }
         )
 

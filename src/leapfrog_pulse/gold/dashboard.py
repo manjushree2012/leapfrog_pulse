@@ -74,7 +74,8 @@ def compute_project_summary(spark: SparkSession, catalog: str, schema: str, as_o
         )
     )
 
-    # JIRA: current issue state, taking each issue's latest silver record
+    # Jira's resolved critical/high bugs provide the mock incident recovery proxy.
+    # Use each issue's latest silver record to avoid counting daily snapshots twice.
     issue_window = Window.partitionBy("issue_key").orderBy(
         F.col("processing_date").desc(),
         F.col("updated_at").desc(),
@@ -95,6 +96,29 @@ def compute_project_summary(spark: SparkSession, catalog: str, schema: str, as_o
             F.sum(F.when(F.col("issue_type") == "Task", 1).otherwise(0)).alias("tasks_count"),
             F.round(F.avg("story_points"), 1).alias("avg_story_points"),
             F.max("sprint_name").alias("sprint_name"),
+            F.sum(
+                F.when(
+                    F.col("is_bug")
+                    & F.col("priority").isin("Critical", "High")
+                    & F.col("created_at").isNotNull()
+                    & F.col("resolved_at").isNotNull()
+                    & (F.col("resolved_at") >= F.col("created_at")),
+                    1,
+                ).otherwise(0)
+            ).alias("resolved_incidents"),
+            F.round(
+                F.avg(
+                    F.when(
+                        F.col("is_bug")
+                        & F.col("priority").isin("Critical", "High")
+                        & F.col("created_at").isNotNull()
+                        & F.col("resolved_at").isNotNull()
+                        & (F.col("resolved_at") >= F.col("created_at")),
+                        (F.unix_timestamp("resolved_at") - F.unix_timestamp("created_at")) / 3600.0,
+                    )
+                ),
+                2,
+            ).alias("avg_incident_recovery_hrs"),
         )
     )
 
@@ -118,6 +142,18 @@ def compute_project_summary(spark: SparkSession, catalog: str, schema: str, as_o
                 / F.greatest(F.sum("reviewed_prs"), F.lit(1)),
                 2,
             ).alias("avg_pr_review_time_hrs"),
+        )
+    )
+
+    # CI check outcomes are PR-level data; aggregate the latest silver records
+    # directly so daily PR gold upserts cannot overwrite checks from other PRs.
+    ci_30d = (
+        spark.table(f"`{catalog}`.`{schema}`.github_silver_project_prs")
+        .filter(F.to_date("updated_at").between(window_start, window_end))
+        .groupBy("project_id")
+        .agg(
+            F.sum(F.coalesce(F.col("ci_checks_total"), F.lit(0))).alias("ci_checks_total"),
+            F.sum(F.coalesce(F.col("ci_checks_failed"), F.lit(0))).alias("ci_checks_failed"),
         )
     )
 
@@ -161,6 +197,7 @@ def compute_project_summary(spark: SparkSession, catalog: str, schema: str, as_o
         .join(jr_latest, "project_id", "left")
         .join(jr_30d, "project_id", "left")
         .join(pr_30d, "project_id", "left")
+        .join(ci_30d, "project_id", "left")
         .join(pr_lead_30d, "project_id", "left")
         .join(dep_30d, "project_id", "left")
     )
@@ -228,6 +265,10 @@ def ensure_project_summary_table(spark: SparkSession, catalog: str, schema: str)
             merged_prs_last_30d LONG,
             avg_pr_review_time_hrs DOUBLE,
             deploy_frequency_30d DOUBLE,
+            ci_checks_total     LONG,
+            ci_checks_failed    LONG,
+            resolved_incidents  LONG,
+            avg_incident_recovery_hrs DOUBLE,
             health_score        INT,
             as_of_date          DATE,
             updated_at          TIMESTAMP
@@ -243,6 +284,10 @@ def ensure_project_summary_table(spark: SparkSession, catalog: str, schema: str)
         "merged_prs_last_30d": "BIGINT",
         "avg_pr_review_time_hrs": "DOUBLE",
         "deploy_frequency_30d": "DOUBLE",
+        "ci_checks_total": "BIGINT",
+        "ci_checks_failed": "BIGINT",
+        "resolved_incidents": "BIGINT",
+        "avg_incident_recovery_hrs": "DOUBLE",
     }
     missing_columns = [f"{name} {data_type}" for name, data_type in new_columns.items() if name not in existing_columns]
     if missing_columns:

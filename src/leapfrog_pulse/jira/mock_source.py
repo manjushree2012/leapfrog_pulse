@@ -62,6 +62,7 @@ RECORD_SCHEMA = [
     "reporter",      # str  — developer name
     "created_at",    # str  ISO timestamp
     "updated_at",    # str  ISO timestamp — within the processing date
+    "resolved_at",   # str | None  ISO timestamp — set for resolved issues
     "story_points",  # int
     "sprint_name",   # str
     "worklog_hours",   # float — total hours logged on this issue on this date (0.0 if none)
@@ -94,6 +95,16 @@ def _build_issue(project_key: str, dt: date, idx: int) -> dict:
     created_at = datetime(created_date.year, created_date.month, created_date.day, 9, 0, 0)
 
     sprint_num = _SPRINT_BASE + dt.isocalendar()[1]
+    status = _STATUSES[_h(f"sta-{seed}", len(_STATUSES))]
+    issue_type = _ISSUE_TYPES[_h(f"typ-{seed}", len(_ISSUE_TYPES))]
+    priority = _PRIORITIES[_h(f"pri-{seed}", len(_PRIORITIES))]
+
+    # Keep at least one completed high-severity bug in each project's mock data
+    # so the incident-recovery metric has realistic resolved examples.
+    if idx == 0:
+        status = "Done"
+        issue_type = "Bug"
+        priority = "Critical"
 
     # Worklog hours: ~60% of issues have worklogs; when present: _h(..., 14) * 0.5 + 0.5 (i.e., 0.5 to 7.0 hours)
     has_worklog = _h(f"wl-has-{seed}", 100) < 60
@@ -106,13 +117,14 @@ def _build_issue(project_key: str, dt: date, idx: int) -> dict:
         "issue_key": issue_key,
         "project_key": project_key,
         "summary": _SUMMARIES[_h(f"sum-{seed}", len(_SUMMARIES))],
-        "status": _STATUSES[_h(f"sta-{seed}", len(_STATUSES))],
-        "issue_type": _ISSUE_TYPES[_h(f"typ-{seed}", len(_ISSUE_TYPES))],
-        "priority": _PRIORITIES[_h(f"pri-{seed}", len(_PRIORITIES))],
+        "status": status,
+        "issue_type": issue_type,
+        "priority": priority,
         "assignee": _DEVELOPERS[_h(f"asg-{seed}", len(_DEVELOPERS))],
         "reporter": _DEVELOPERS[_h(f"rep-{seed}", len(_DEVELOPERS))],
         "created_at": created_at.isoformat(),
         "updated_at": updated_at.isoformat(),
+        "resolved_at": updated_at.isoformat() if status == "Done" else None,
         "story_points": _STORY_POINTS[_h(f"sp-{seed}", len(_STORY_POINTS))],
         "sprint_name": f"Sprint {sprint_num}",
         "worklog_hours": worklog_hours,

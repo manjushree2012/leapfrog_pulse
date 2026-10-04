@@ -29,6 +29,7 @@ _RAW_SCHEMA = StructType(
         StructField("reporter", StringType(), True),
         StructField("created_at", StringType(), True),
         StructField("updated_at", StringType(), True),
+        StructField("resolved_at", StringType(), True),
         StructField("story_points", IntegerType(), True),
         StructField("sprint_name", StringType(), True),
         StructField("worklog_hours", DoubleType(), True),
@@ -68,6 +69,7 @@ def build_bronze_df(spark: SparkSession, catalog: str, schema: str, processing_d
         spark.createDataFrame(all_issues, schema=_RAW_SCHEMA)
         .withColumn("created_at", F.to_timestamp("created_at"))
         .withColumn("updated_at", F.to_timestamp("updated_at"))
+        .withColumn("resolved_at", F.to_timestamp("resolved_at"))
         .withColumn("ingestion_timestamp", F.lit(ingestion_ts).cast(TimestampType()))
         .withColumn("processing_date", F.lit(proc_date).cast(DateType()))
     )
@@ -92,6 +94,7 @@ def ensure_bronze_table(spark: SparkSession, catalog: str, schema: str) -> None:
             reporter            STRING,
             created_at          TIMESTAMP,
             updated_at          TIMESTAMP,
+            resolved_at         TIMESTAMP,
             story_points        INT,
             sprint_name         STRING,
             worklog_hours       DOUBLE,
@@ -103,6 +106,10 @@ def ensure_bronze_table(spark: SparkSession, catalog: str, schema: str) -> None:
         PARTITIONED BY (processing_date)
         COMMENT 'Raw JIRA issues updated in the past 24 hours, enriched with Vyaguta project context'
     """)
+    table_name = _table(catalog, schema)
+    existing_columns = {field.name.lower() for field in spark.table(table_name).schema.fields}
+    if "resolved_at" not in existing_columns:
+        spark.sql(f"ALTER TABLE {table_name} ADD COLUMNS (resolved_at TIMESTAMP)")
 
 
 def merge_bronze(spark: SparkSession, df: DataFrame, catalog: str, schema: str) -> None:

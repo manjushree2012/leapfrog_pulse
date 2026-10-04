@@ -38,8 +38,12 @@ function summarizeProjectMetrics(rows) {
   const totalIssues = rows.reduce((sum, row) =>
     sum + (num(row.open_issues) || 0) + (num(row.in_progress_issues) || 0) + (num(row.done_issues) || 0), 0);
   const totalBugs = rows.reduce((sum, row) => sum + (num(row.bugs_count) || 0), 0);
+  const totalChecks = rows.reduce((sum, row) => sum + (num(row.ci_checks_total) || 0), 0);
+  const failedChecks = rows.reduce((sum, row) => sum + (num(row.ci_checks_failed) || 0), 0);
   let mergedPrs = 0;
   let weightedLeadTime = 0;
+  let resolvedIncidents = 0;
+  let weightedRecoveryTime = 0;
 
   rows.forEach((row) => {
     const projectMergedPrs = num(row.merged_prs_last_30d) || 0;
@@ -48,11 +52,19 @@ function summarizeProjectMetrics(rows) {
       mergedPrs += projectMergedPrs;
       weightedLeadTime += projectLeadTime * projectMergedPrs;
     }
+    const incidentCount = num(row.resolved_incidents) || 0;
+    const recoveryTime = num(row.avg_incident_recovery_hrs);
+    if (recoveryTime != null && incidentCount > 0) {
+      resolvedIncidents += incidentCount;
+      weightedRecoveryTime += recoveryTime * incidentCount;
+    }
   });
 
   return {
     bugRate: totalIssues > 0 ? (totalBugs / totalIssues) * 100 : null,
     leadTimeDays: mergedPrs > 0 ? weightedLeadTime / mergedPrs : null,
+    ciFailureRate: totalChecks > 0 ? (failedChecks / totalChecks) * 100 : null,
+    incidentRecoveryHours: resolvedIncidents > 0 ? weightedRecoveryTime / resolvedIncidents : null,
   };
 }
 
@@ -95,8 +107,8 @@ router.get("/kpis", async (req, res) => {
     deployFrequency:  { value: project && num(scopedProject && scopedProject.deploy_frequency_30d) != null
       ? `${num(scopedProject.deploy_frequency_30d).toFixed(2)}/day`
       : (r && num(r.deploy_frequency_30d) != null ? `${num(r.deploy_frequency_30d).toFixed(2)}/day` : "—"), change: null, up: true },
-    ciFailureRate:    { value: "—",  change: null, up: false },
-    incidentRecovery: { value: "—",  change: null, up: false },
+    ciFailureRate:    { value: projectMetrics.ciFailureRate != null ? `${projectMetrics.ciFailureRate.toFixed(1)}%` : "—", change: null, up: false },
+    incidentRecovery: { value: projectMetrics.incidentRecoveryHours != null ? `${projectMetrics.incidentRecoveryHours.toFixed(1)}h` : "—", change: null, up: false },
     // Extra gold fields for new KPI tiles
     activeProjects:   r ? num(r.active_projects)   : null,
     activeDevelopers: r ? num(r.active_developers)  : null,
@@ -130,6 +142,7 @@ router.get("/health", async (req, res) => {
   const prReviewTime = project
     ? num(scopedProject && scopedProject.avg_pr_review_time_hrs)
     : (r ? num(r.avg_pr_review_time_hrs) : null);
+  const incidentRecovery = projectMetrics.incidentRecoveryHours;
   const deployFreq = project
     ? num(scopedProject && scopedProject.deploy_frequency_30d)
     : (r ? num(r.deploy_frequency_30d) : null);
@@ -150,7 +163,8 @@ router.get("/health", async (req, res) => {
       { label: "Deployment Frequency",   value: deployFreq != null ? `${deployFreq.toFixed(2)}/day` : "—",      change: null, goodDown: false },
       { label: "Bug Rate",               value: bugRate != null ? `${Number(bugRate).toFixed(1)}%` : "—",        change: null, goodDown: true  },
       { label: "Lead Time",              value: projectMetrics.leadTimeDays != null ? `${projectMetrics.leadTimeDays.toFixed(1)} days` : "—", change: null, goodDown: true },
-      { label: "Avg. Incident Recovery", value: "—",                                                            change: null, goodDown: true  },
+      { label: "CI Failure Rate",        value: projectMetrics.ciFailureRate != null ? `${projectMetrics.ciFailureRate.toFixed(1)}%` : "—", change: null, goodDown: true },
+      { label: "Avg. Incident Recovery", value: incidentRecovery != null ? `${incidentRecovery.toFixed(1)}h avg` : "—", change: null, goodDown: true },
       { label: "Project Velocity",       value: velocityValue,                                                   change: null, goodDown: false },
     ],
   });

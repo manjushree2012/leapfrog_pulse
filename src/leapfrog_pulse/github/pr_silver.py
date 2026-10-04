@@ -90,6 +90,8 @@ def ensure_silver_table(spark: SparkSession, catalog: str, schema: str) -> None:
             changed_files             INT,
             is_merged                 BOOLEAN,
             draft                     BOOLEAN,
+            ci_checks_total           INT,
+            ci_checks_failed          INT,
             review_time_seconds       LONG,
             pr_date                   DATE,
             processing_date           DATE,
@@ -99,6 +101,15 @@ def ensure_silver_table(spark: SparkSession, catalog: str, schema: str) -> None:
         PARTITIONED BY (pr_date)
         COMMENT 'Validated GitHub pull requests with computed review_time_seconds'
     """)
+    table_name = _table(catalog, schema)
+    existing_columns = {field.name.lower() for field in spark.table(table_name).schema.fields}
+    missing_columns = [
+        f"{name} INT"
+        for name in ("ci_checks_total", "ci_checks_failed")
+        if name not in existing_columns
+    ]
+    if missing_columns:
+        spark.sql(f"ALTER TABLE {table_name} ADD COLUMNS ({', '.join(missing_columns)})")
 
 
 def merge_silver(spark: SparkSession, df: DataFrame, catalog: str, schema: str) -> None:

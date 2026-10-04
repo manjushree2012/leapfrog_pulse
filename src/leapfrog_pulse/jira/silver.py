@@ -70,6 +70,13 @@ def transform_silver(df: DataFrame) -> DataFrame:
     df = (
         df.withColumn("created_date", F.to_date("created_at"))
         .withColumn("updated_date", F.to_date("updated_at"))
+        .withColumn(
+            "resolved_at",
+            F.when(
+                F.col("resolved_at").isNotNull() & (F.col("resolved_at") >= F.col("created_at")),
+                F.col("resolved_at"),
+            ).otherwise(F.lit(None).cast("timestamp")),
+        )
     )
 
     # Derived semantic flags
@@ -100,6 +107,7 @@ def transform_silver(df: DataFrame) -> DataFrame:
         "created_date",
         "updated_at",
         "updated_date",
+        "resolved_at",
         "story_points",
         "sprint_name",
         "worklog_hours",
@@ -132,6 +140,7 @@ def ensure_silver_table(spark: SparkSession, catalog: str, schema: str) -> None:
             created_date    DATE,
             updated_at      TIMESTAMP,
             updated_date    DATE,
+            resolved_at     TIMESTAMP,
             story_points    INT,
             sprint_name     STRING,
             worklog_hours   DOUBLE,
@@ -145,6 +154,10 @@ def ensure_silver_table(spark: SparkSession, catalog: str, schema: str) -> None:
         PARTITIONED BY (processing_date)
         COMMENT 'JIRA issues — validated and normalized, one snapshot per (issue, processing date)'
     """)
+    table_name = _table(catalog, schema)
+    existing_columns = {field.name.lower() for field in spark.table(table_name).schema.fields}
+    if "resolved_at" not in existing_columns:
+        spark.sql(f"ALTER TABLE {table_name} ADD COLUMNS (resolved_at TIMESTAMP)")
 
 
 def merge_silver(spark: SparkSession, df: DataFrame, catalog: str, schema: str) -> None:

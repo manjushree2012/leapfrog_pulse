@@ -43,6 +43,8 @@ _RAW_SCHEMA = StructType([
     StructField("changed_files",            IntegerType(), True),
     StructField("is_merged",                BooleanType(), True),
     StructField("draft",                    BooleanType(), True),
+    StructField("ci_checks_total",           IntegerType(), True),
+    StructField("ci_checks_failed",          IntegerType(), True),
 ])
 
 
@@ -120,6 +122,8 @@ def ensure_bronze_table(spark: SparkSession, catalog: str, schema: str) -> None:
             changed_files             INT,
             is_merged                 BOOLEAN,
             draft                     BOOLEAN,
+            ci_checks_total           INT,
+            ci_checks_failed          INT,
             ingestion_timestamp       TIMESTAMP,
             processing_date           DATE
         )
@@ -127,6 +131,15 @@ def ensure_bronze_table(spark: SparkSession, catalog: str, schema: str) -> None:
         PARTITIONED BY (processing_date)
         COMMENT 'Raw GitHub pull requests enriched with Vyaguta project context'
     """)
+    table_name = _table(catalog, schema)
+    existing_columns = {field.name.lower() for field in spark.table(table_name).schema.fields}
+    missing_columns = [
+        f"{name} INT"
+        for name in ("ci_checks_total", "ci_checks_failed")
+        if name not in existing_columns
+    ]
+    if missing_columns:
+        spark.sql(f"ALTER TABLE {table_name} ADD COLUMNS ({', '.join(missing_columns)})")
 
 
 def merge_bronze(spark: SparkSession, df: DataFrame, catalog: str, schema: str) -> None:

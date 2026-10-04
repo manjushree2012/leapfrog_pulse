@@ -855,7 +855,9 @@
       const iconBg = ['#eff6ff','#fff7ed','#fef2f2','#f5f3ff','#f0fdf4'];
       metricsEl.innerHTML = d.metrics.map((m, i) => {
         const arrow  = m.goodDown ? (m.change > 0 ? '↓' : '↑') : (m.change > 0 ? '↑' : '↓');
-        const isGood = true;
+        const badge = m.change == null
+          ? ''
+          : `<span class="metric-badge badge-good">${arrow} ${m.change}%</span>`;
         return `<div class="health-metric">
           <div class="metric-left">
             <div class="metric-icon" style="background:${iconBg[i] || '#f0f0f0'}">${iconHtml[i] || ''}</div>
@@ -863,7 +865,7 @@
           </div>
           <div class="metric-right">
             <span class="metric-value">${escHtml(m.value)}</span>
-            <span class="metric-badge ${isGood ? 'badge-good' : 'badge-bad'}">${arrow} ${m.change}%</span>
+            ${badge}
           </div>
         </div>`;
       }).join('');
