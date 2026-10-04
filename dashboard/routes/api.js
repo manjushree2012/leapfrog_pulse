@@ -18,6 +18,44 @@ async function dbQuery(sql, cacheKey) {
 function num(v) { return v == null ? null : Number(v); }
 function fmt(v) { return v == null ? "—" : Number(v).toLocaleString(); }
 
+function selectedProject(req) {
+  const project = req.query.project;
+  return typeof project === "string" && project.trim() ? project.trim() : null;
+}
+
+function projectWhere(project) {
+  return project ? ` WHERE project_name = '${project.replace(/'/g, "''")}'` : "";
+}
+
+async function getProjectRows(project, cacheKey) {
+  return dbQuery(
+    `SELECT * FROM ${db.tbl("dashboard_gold_project_summary")}${projectWhere(project)} ORDER BY project_name`,
+    `${cacheKey}:${project || "all"}`,
+  );
+}
+
+function summarizeProjectMetrics(rows) {
+  const totalIssues = rows.reduce((sum, row) =>
+    sum + (num(row.open_issues) || 0) + (num(row.in_progress_issues) || 0) + (num(row.done_issues) || 0), 0);
+  const totalBugs = rows.reduce((sum, row) => sum + (num(row.bugs_count) || 0), 0);
+  let mergedPrs = 0;
+  let weightedLeadTime = 0;
+
+  rows.forEach((row) => {
+    const projectMergedPrs = num(row.merged_prs_last_30d) || 0;
+    const projectLeadTime = num(row.avg_lead_time_days);
+    if (projectLeadTime != null && projectMergedPrs > 0) {
+      mergedPrs += projectMergedPrs;
+      weightedLeadTime += projectLeadTime * projectMergedPrs;
+    }
+  });
+
+  return {
+    bugRate: totalIssues > 0 ? (totalBugs / totalIssues) * 100 : null,
+    leadTimeDays: mergedPrs > 0 ? weightedLeadTime / mergedPrs : null,
+  };
+}
+
 const TEAM_COLORS = {
   HealthTech:               "#3b82f6",
   FinTech:                  "#f59e0b",
@@ -35,17 +73,28 @@ function teamColor(name) {
 
 // ─── /api/kpis ───────────────────────────────────────────────────────────────
 
-router.get("/kpis", async (_req, res) => {
-  const rows = await dbQuery(
-    `SELECT * FROM ${db.tbl("dashboard_gold_kpis")} ORDER BY kpi_date DESC LIMIT 1`,
-    "kpis",
-  );
+router.get("/kpis", async (req, res) => {
+  const project = selectedProject(req);
+  const [rows, projectRows] = await Promise.all([
+    dbQuery(
+      `SELECT * FROM ${db.tbl("dashboard_gold_kpis")} ORDER BY kpi_date DESC LIMIT 1`,
+      "kpis",
+    ),
+    getProjectRows(project, "project_kpis"),
+  ]);
   const r = rows && rows[0];
+  const scopedRows = projectRows || [];
+  const projectMetrics = summarizeProjectMetrics(scopedRows);
+  const scopedProject = scopedRows[0];
 
   res.json({
-    totalCommits:     { value: r ? fmt(r.total_commits_30d) : "—",  change: null, up: true  },
+    totalCommits:     { value: project ? fmt(num(scopedProject && scopedProject.commits_last_30d)) : (r ? fmt(r.total_commits_30d) : "—"), change: null, up: true },
     pullRequests:     { value: "—",  change: null, up: true  },
-    deployFrequency:  { value: r && num(r.deploy_frequency_30d) != null ? `${num(r.deploy_frequency_30d).toFixed(2)}/day` : "—", change: null, up: true  },
+    bugRate:          { value: projectMetrics.bugRate != null ? `${projectMetrics.bugRate.toFixed(1)}%` : "—", change: null, up: false },
+    leadTime:         { value: projectMetrics.leadTimeDays != null ? `${projectMetrics.leadTimeDays.toFixed(1)} days` : "—", change: null, up: false },
+    deployFrequency:  { value: project && num(scopedProject && scopedProject.deploy_frequency_30d) != null
+      ? `${num(scopedProject.deploy_frequency_30d).toFixed(2)}/day`
+      : (r && num(r.deploy_frequency_30d) != null ? `${num(r.deploy_frequency_30d).toFixed(2)}/day` : "—"), change: null, up: true },
     ciFailureRate:    { value: "—",  change: null, up: false },
     incidentRecovery: { value: "—",  change: null, up: false },
     // Extra gold fields for new KPI tiles
@@ -58,22 +107,36 @@ router.get("/kpis", async (_req, res) => {
 
 // ─── /api/health ─────────────────────────────────────────────────────────────
 
-router.get("/health", async (_req, res) => {
-  const rows = await dbQuery(
-    `SELECT * FROM ${db.tbl("dashboard_gold_kpis")} ORDER BY kpi_date DESC LIMIT 1`,
-    "kpis",
-  );
+router.get("/health", async (req, res) => {
+  const project = selectedProject(req);
+  const [rows, projectRows] = await Promise.all([
+    dbQuery(
+      `SELECT * FROM ${db.tbl("dashboard_gold_kpis")} ORDER BY kpi_date DESC LIMIT 1`,
+      "kpis",
+    ),
+    getProjectRows(project, "project_health"),
+  ]);
   const r = rows && rows[0];
+  const scopedRows = projectRows || [];
+  const projectMetrics = summarizeProjectMetrics(scopedRows);
+  const scopedProject = scopedRows[0];
 
-  const score = r ? (num(r.org_health_score) || 0) : 0;
+  const score = project
+    ? (num(scopedProject && scopedProject.health_score) || 0)
+    : (r ? (num(r.org_health_score) || 0) : 0);
 
   // Compute derived health metrics from gold data
-  const totalIssues = r ? (num(r.total_done_issues) + num(r.total_open_issues) + num(r.total_in_progress)) : 0;
-  const bugRate = totalIssues > 0 ? ((num(r.total_bugs) / totalIssues) * 100).toFixed(1) : null;
-  const prReviewTime = r ? num(r.avg_pr_review_time_hrs) : null;
-  const deployFreq = r ? num(r.deploy_frequency_30d) : null;
-  const velocitySP = r ? num(r.velocity_story_points_30d) : null;
-  const velocityIssues = r ? num(r.done_issues_30d) : null;
+  const bugRate = projectMetrics.bugRate;
+  const prReviewTime = project
+    ? num(scopedProject && scopedProject.avg_pr_review_time_hrs)
+    : (r ? num(r.avg_pr_review_time_hrs) : null);
+  const deployFreq = project
+    ? num(scopedProject && scopedProject.deploy_frequency_30d)
+    : (r ? num(r.deploy_frequency_30d) : null);
+  const velocitySP = project ? null : (r ? num(r.velocity_story_points_30d) : null);
+  const velocityIssues = project
+    ? num(scopedProject && scopedProject.done_issues_last_30d)
+    : (r ? num(r.done_issues_30d) : null);
 
   const velocityValue = velocitySP != null && velocitySP > 0
     ? `${velocitySP} SP/30d`
@@ -85,7 +148,8 @@ router.get("/health", async (_req, res) => {
     metrics: [
       { label: "PR Review Time",         value: prReviewTime != null ? `${prReviewTime.toFixed(1)}h avg` : "—", change: null, goodDown: true  },
       { label: "Deployment Frequency",   value: deployFreq != null ? `${deployFreq.toFixed(2)}/day` : "—",      change: null, goodDown: false },
-      { label: "Bug Rate",               value: bugRate != null ? `${bugRate}%` : "—",                          change: null, goodDown: true  },
+      { label: "Bug Rate",               value: bugRate != null ? `${Number(bugRate).toFixed(1)}%` : "—",        change: null, goodDown: true  },
+      { label: "Lead Time",              value: projectMetrics.leadTimeDays != null ? `${projectMetrics.leadTimeDays.toFixed(1)} days` : "—", change: null, goodDown: true },
       { label: "Avg. Incident Recovery", value: "—",                                                            change: null, goodDown: true  },
       { label: "Project Velocity",       value: velocityValue,                                                   change: null, goodDown: false },
     ],
@@ -130,14 +194,15 @@ router.get("/teams", async (_req, res) => {
 
 // ─── /api/projects ───────────────────────────────────────────────────────────
 
-router.get("/projects", async (_req, res) => {
+router.get("/projects", async (req, res) => {
+  const project = selectedProject(req);
   const rows = await dbQuery(
     `SELECT project_name, team, health_score,
             commits_last_30d, open_issues, bugs_count,
             in_progress_issues, done_issues_last_30d
-     FROM ${db.tbl("dashboard_gold_project_summary")}
+     FROM ${db.tbl("dashboard_gold_project_summary")}${projectWhere(project)}
      ORDER BY health_score DESC`,
-    "projects",
+    `projects:${project || "all"}`,
   );
 
   if (!rows || rows.length === 0) {
@@ -147,7 +212,7 @@ router.get("/projects", async (_req, res) => {
       { name: "EduConnect LMS",         team: "EdTech",     color: "#8b5cf6", healthScore: null, commits30d: null, openIssues: null, bugs: null },
       { name: "LogiTrack Supply Chain", team: "Enterprise", color: "#10b981", healthScore: null, commits30d: null, openIssues: null, bugs: null },
       { name: "DevPulse Internal",      team: "Engineering Intelligence", color: "#06b6d4", healthScore: null, commits30d: null, openIssues: null, bugs: null },
-    ]);
+    ].filter((entry) => !project || entry.name === project));
   }
 
   res.json(rows.map((r) => ({
@@ -164,15 +229,16 @@ router.get("/projects", async (_req, res) => {
 
 // ─── /api/velocity ───────────────────────────────────────────────────────────
 
-router.get("/velocity", async (_req, res) => {
+router.get("/velocity", async (req, res) => {
+  const project = selectedProject(req);
   const rows = await dbQuery(
     `SELECT project_name, team, sprint_name,
             done_issues_last_30d, in_progress_issues, open_issues,
             avg_story_points, lines_added_30d, lines_removed_30d,
             health_score
-     FROM ${db.tbl("dashboard_gold_project_summary")}
+     FROM ${db.tbl("dashboard_gold_project_summary")}${projectWhere(project)}
      ORDER BY done_issues_last_30d DESC`,
-    "velocity",
+    `velocity:${project || "all"}`,
   );
 
   if (!rows) return res.json([]);
@@ -246,14 +312,15 @@ router.get("/time-distribution", async (_req, res) => {
 
 // ─── /api/activity ───────────────────────────────────────────────────────────
 
-router.get("/activity", async (_req, res) => {
+router.get("/activity", async (req, res) => {
+  const project = selectedProject(req);
   const rows = await dbQuery(
     `SELECT event_id, event_type, event_time, project_name, repository,
             actor, description, source, priority, status
-     FROM ${db.tbl("dashboard_gold_recent_activity")}
+     FROM ${db.tbl("dashboard_gold_recent_activity")}${projectWhere(project)}
      ORDER BY event_time DESC
      LIMIT 20`,
-    "activity",
+    `activity:${project || "all"}`,
   );
 
   if (!rows || rows.length === 0) {
@@ -319,25 +386,33 @@ router.get("/vyaguta", async (_req, res) => {
 
 // ─── /api/insights ───────────────────────────────────────────────────────────
 
-router.get("/insights", async (_req, res) => {
+router.get("/insights", async (req, res) => {
+  const project = selectedProject(req);
   const [kpiRows, projRows] = await Promise.all([
     dbQuery(`SELECT * FROM ${db.tbl("dashboard_gold_kpis")} ORDER BY kpi_date DESC LIMIT 1`, "kpis"),
-    dbQuery(`SELECT * FROM ${db.tbl("dashboard_gold_project_summary")} ORDER BY health_score ASC LIMIT 1`, "insights_proj"),
+    getProjectRows(project, "insights_proj"),
   ]);
 
   const kpi  = kpiRows  && kpiRows[0];
-  const proj = projRows && projRows[0];
+  const proj = projRows && (project
+    ? projRows[0]
+    : [...projRows].sort((a, b) => (num(a.health_score) || 0) - (num(b.health_score) || 0))[0]);
 
   const insights = [];
 
-  if (kpi) {
+  if (project && proj) {
+    const metrics = summarizeProjectMetrics([proj]);
+    insights.push(`"${proj.project_name}" recorded ${fmt(proj.commits_last_30d)} commits in the last 30 days.`);
+    insights.push(`${fmt(proj.open_issues)} issues remain open${metrics.bugRate != null ? `, with a ${metrics.bugRate.toFixed(1)}% bug rate` : ""}.`);
+    insights.push(`Project health is ${fmt(proj.health_score)}/100.`);
+  } else if (kpi) {
     insights.push(`${fmt(kpi.total_commits_30d)} commits across ${fmt(kpi.active_projects)} active projects in the last 30 days.`);
     insights.push(`${fmt(kpi.done_issues_30d)} JIRA issues resolved in the last 30 days (${fmt(kpi.total_open_issues)} still open).`);
-    if (num(kpi.total_bugs) > 0) insights.push(`${fmt(kpi.total_bugs)} open bugs tracked across all projects.`);
+    if (num(kpi.total_bugs) > 0) insights.push(`${fmt(kpi.total_bugs)} bugs tracked across all projects.`);
     if (num(kpi.active_developers) > 0) insights.push(`${fmt(kpi.active_developers)} developers made commits in the last 30 days.`);
   }
 
-  if (proj) insights.push(`"${proj.project_name}" has the lowest health score (${proj.health_score}/100) — ${proj.bugs_count} open bugs.`);
+  if (!project && proj) insights.push(`"${proj.project_name}" has the lowest health score (${proj.health_score}/100) — ${proj.bugs_count} open bugs.`);
 
   if (insights.length === 0) {
     insights.push(

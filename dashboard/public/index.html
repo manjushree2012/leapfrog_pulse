@@ -125,6 +125,7 @@
   .page-header h1 span { font-weight: 400; color: #6b7280; }
   .page-header p { font-size: 13px; color: #6b7280; margin-top: 4px; }
   .header-controls { display: flex; gap: 10px; align-items: center; }
+  .header-controls .project-filter { min-width: 190px; }
   .header-controls select {
     padding: 7px 12px;
     border: 1px solid #d1d5db;
@@ -482,10 +483,13 @@
   <!-- PAGE HEADER -->
   <div class="page-header">
     <div>
-      <h1>Engineering Intelligence</h1>
-      <p>Unified view of code, projects and people — powered by Vyaguta + external tools</p>
+      <h1>Leapfrog Intelligence</h1>
+      <p>Unified view of code, projects and people</p>
     </div>
     <div class="header-controls">
+      <select id="project-filter" class="project-filter" aria-label="Filter by project">
+        <option value="">All Projects</option>
+      </select>
       <select>
         <option>Last 30 days</option>
         <option>Last 7 days</option>
@@ -500,24 +504,24 @@
     <div class="kpi-grid">
       <div class="kpi-card">
         <div class="kpi-header">
-          <div class="kpi-icon" style="background:#eff6ff">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2.5"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          <div class="kpi-icon" style="background:#fef2f2">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
           </div>
-          <span class="kpi-label">Total Commits</span>
+          <span class="kpi-label">Bug Rate</span>
         </div>
         <div class="kpi-value">—</div>
-        <div class="kpi-change up"></div>
+        <div class="kpi-change down"></div>
       </div>
 
       <div class="kpi-card">
         <div class="kpi-header">
-          <div class="kpi-icon" style="background:#f0fdf4">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><line x1="6" y1="9" x2="6" y2="21"/></svg>
+          <div class="kpi-icon" style="background:#f5f3ff">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
           </div>
-          <span class="kpi-label">Pull Requests</span>
+          <span class="kpi-label">Lead Time</span>
         </div>
         <div class="kpi-value">—</div>
-        <div class="kpi-change up"></div>
+        <div class="kpi-change down"></div>
       </div>
 
       <div class="kpi-card">
@@ -614,7 +618,7 @@
               <th>Project</th>
               <th>Health Score</th>
               <th>Commits (30d)</th>
-              <th>Bugs Open</th>
+              <th>Bugs</th>
             </tr>
           </thead>
           <tbody></tbody>
@@ -624,7 +628,7 @@
       <!-- Where Engineering Time Goes -->
       <div class="card">
         <div class="card-title">Where Engineering Time Goes</div>
-        <div style="margin-bottom:16px"></div>
+        <div class="card-subtitle">Organization-wide allocation (not project-filtered)</div>
         <div class="time-body">
           <div class="donut-wrap">
             <div class="donut-bg">
@@ -802,8 +806,8 @@
   function renderKPIs(d) {
     const cards = document.querySelectorAll('.kpi-card');
     const map = [
-      d.totalCommits,
-      d.pullRequests,
+      d.bugRate,
+      d.leadTime,
       d.deployFrequency,
       d.ciFailureRate,
       d.incidentRecovery,
@@ -827,7 +831,7 @@
     const metricsEl = document.querySelector('.health-metrics');
 
     if (scoreEl) scoreEl.textContent = d.score;
-    if (chgEl)   chgEl.textContent   = `↑ ${d.change}% vs last 30 days`;
+    if (chgEl)   chgEl.textContent   = d.change != null ? `↑ ${d.change}% vs last 30 days` : '';
 
     if (fillEl) {
       const circumference = 326.7;
@@ -896,6 +900,11 @@
         <td><span class="incident-badge ${incClass(p.bugs || 0)}">${p.bugs != null ? p.bugs : '—'}</span></td>
       </tr>`;
     }).join('');
+  }
+
+  function renderProjectScope(project) {
+    const subtitle = document.querySelector('.ph-table')?.closest('.card')?.querySelector('.card-subtitle');
+    if (subtitle) subtitle.textContent = project ? `Key metrics for ${project}` : 'Key metrics across all projects';
   }
 
   function renderTimeDistribution(d) {
@@ -1017,30 +1026,58 @@
 
   // ─── Bootstrap ─────────────────────────────────────────────────────────────
 
-  async function initDashboard() {
+  function renderProjectOptions(projects) {
+    const select = document.querySelector('#project-filter');
+    if (!select) return;
+    const names = [...new Set(projects.map(project => project.name).filter(Boolean))];
+    select.replaceChildren(new Option('All Projects', ''));
+    names.forEach(name => select.add(new Option(name, name)));
+  }
+
+  let dashboardLoadId = 0;
+
+  async function loadDashboard(project) {
+    const loadId = ++dashboardLoadId;
+    const query = project ? `?project=${encodeURIComponent(project)}` : '';
     try {
       const [kpis, health, projects, velocity, timeDist, activity, vyaguta, insights] =
         await Promise.all([
-          fetch('/api/kpis').then(r => r.json()),
-          fetch('/api/health').then(r => r.json()),
-          fetch('/api/projects').then(r => r.json()),
-          fetch('/api/velocity').then(r => r.json()),
-          fetch('/api/time-distribution').then(r => r.json()),
-          fetch('/api/activity').then(r => r.json()),
-          fetch('/api/vyaguta').then(r => r.json()),
-          fetch('/api/insights').then(r => r.json()),
+          fetch(`/api/kpis${query}`).then(r => r.json()),
+          fetch(`/api/health${query}`).then(r => r.json()),
+          fetch(`/api/projects${query}`).then(r => r.json()),
+          fetch(`/api/velocity${query}`).then(r => r.json()),
+          fetch(`/api/time-distribution${query}`).then(r => r.json()),
+          fetch(`/api/activity${query}`).then(r => r.json()),
+          fetch(`/api/vyaguta${query}`).then(r => r.json()),
+          fetch(`/api/insights${query}`).then(r => r.json()),
         ]);
 
+      if (loadId !== dashboardLoadId) return;
       renderKPIs(kpis);
       renderHealth(health);
       renderProjectPerformance(projects);
       renderProjects(projects);
+      renderProjectScope(project);
       renderVelocity(velocity);
       renderChurn(velocity);
       renderTimeDistribution(timeDist);
       renderActivity(activity);
       renderVyaguta(vyaguta);
       renderInsights(insights);
+    } catch (err) {
+      console.error('Dashboard init error:', err);
+    }
+  }
+
+  async function initDashboard() {
+    const projectFilter = document.querySelector('#project-filter');
+    try {
+      const projects = await fetch('/api/projects').then(r => r.json());
+      renderProjectOptions(projects);
+      if (projectFilter) {
+        projectFilter.addEventListener('change', () => loadDashboard(projectFilter.value));
+      }
+      await loadDashboard(projectFilter ? projectFilter.value : '');
     } catch (err) {
       console.error('Dashboard init error:', err);
     }

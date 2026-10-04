@@ -74,23 +74,27 @@ def compute_project_summary(spark: SparkSession, catalog: str, schema: str, as_o
         )
     )
 
-    # JIRA: latest daily snapshot per project (most recent metric_date)
-    w = Window.partitionBy("project_id").orderBy(F.col("metric_date").desc())
+    # JIRA: current issue state, taking each issue's latest silver record
+    issue_window = Window.partitionBy("issue_key").orderBy(
+        F.col("processing_date").desc(),
+        F.col("updated_at").desc(),
+    )
     jr_latest = (
-        spark.table(f"`{catalog}`.`{schema}`.jira_gold_project_daily_metrics")
-        .withColumn("_rn", F.row_number().over(w))
+        spark.table(f"`{catalog}`.`{schema}`.jira_silver_issues")
+        .withColumn("_rn", F.row_number().over(issue_window))
         .filter(F.col("_rn") == 1)
         .drop("_rn")
-        .select(
-            "project_id",
-            "open_issues",
-            "in_progress_issues",
-            "done_issues",
-            "bugs_count",
-            "stories_count",
-            "tasks_count",
-            "avg_story_points",
-            "sprint_name",
+        .groupBy("project_id")
+        .agg(
+            F.sum(F.when(F.col("status") == "To Do", 1).otherwise(0)).alias("open_issues"),
+            F.sum(F.when(F.col("status").isin("In Progress", "In Review"), 1).otherwise(0))
+            .alias("in_progress_issues"),
+            F.sum(F.when(F.col("status") == "Done", 1).otherwise(0)).alias("done_issues"),
+            F.sum(F.when(F.col("is_bug"), 1).otherwise(0)).alias("bugs_count"),
+            F.sum(F.when(F.col("issue_type") == "Story", 1).otherwise(0)).alias("stories_count"),
+            F.sum(F.when(F.col("issue_type") == "Task", 1).otherwise(0)).alias("tasks_count"),
+            F.round(F.avg("story_points"), 1).alias("avg_story_points"),
+            F.max("sprint_name").alias("sprint_name"),
         )
     )
 
@@ -102,12 +106,63 @@ def compute_project_summary(spark: SparkSession, catalog: str, schema: str, as_o
         .agg(F.sum("done_issues").alias("done_issues_last_30d"))
     )
 
+    # Review time from the daily PR mart, weighted by the number of reviewed PRs
+    pr_30d = (
+        spark.table(f"`{catalog}`.`{schema}`.github_gold_pr_daily_metrics")
+        .filter(F.col("metric_date").between(window_start, window_end))
+        .groupBy("project_id")
+        .agg(
+            F.sum("reviewed_prs").alias("reviewed_prs_last_30d"),
+            F.round(
+                F.sum(F.col("avg_review_time_hrs") * F.col("reviewed_prs"))
+                / F.greatest(F.sum("reviewed_prs"), F.lit(1)),
+                2,
+            ).alias("avg_pr_review_time_hrs"),
+        )
+    )
+
+    # Lead time is measured from PR creation to merge, for PRs merged in-window.
+    pr_lead_30d = (
+        spark.table(f"`{catalog}`.`{schema}`.github_silver_project_prs")
+        .filter(
+            F.col("merged_at").isNotNull()
+            & F.to_date("merged_at").between(window_start, window_end)
+            & F.col("created_at").isNotNull()
+            & (F.col("merged_at") >= F.col("created_at"))
+        )
+        .groupBy("project_id")
+        .agg(
+            F.countDistinct("pr_id").alias("merged_prs_last_30d"),
+            F.round(
+                F.avg(
+                    (F.unix_timestamp("merged_at") - F.unix_timestamp("created_at"))
+                    / F.lit(86400.0)
+                ),
+                2,
+            ).alias("avg_lead_time_days"),
+        )
+    )
+
+    # Successful production deployments per day in the rolling window
+    dep_30d = (
+        spark.table(f"`{catalog}`.`{schema}`.github_gold_deployment_daily_metrics")
+        .filter(F.col("metric_date").between(window_start, window_end))
+        .groupBy("project_id")
+        .agg(
+            F.round(F.sum("successful_prod_deployments") / F.lit(30.0), 2)
+            .alias("deploy_frequency_30d"),
+        )
+    )
+
     # Join everything — Vyaguta is the master project list
     result = (
         vy_projects
         .join(gh, "project_id", "left")
         .join(jr_latest, "project_id", "left")
         .join(jr_30d, "project_id", "left")
+        .join(pr_30d, "project_id", "left")
+        .join(pr_lead_30d, "project_id", "left")
+        .join(dep_30d, "project_id", "left")
     )
 
     # Health score (0-100):
@@ -169,6 +224,10 @@ def ensure_project_summary_table(spark: SparkSession, catalog: str, schema: str)
             avg_story_points    DOUBLE,
             sprint_name         STRING,
             done_issues_last_30d LONG,
+            avg_lead_time_days  DOUBLE,
+            merged_prs_last_30d LONG,
+            avg_pr_review_time_hrs DOUBLE,
+            deploy_frequency_30d DOUBLE,
             health_score        INT,
             as_of_date          DATE,
             updated_at          TIMESTAMP
@@ -177,8 +236,21 @@ def ensure_project_summary_table(spark: SparkSession, catalog: str, schema: str)
         COMMENT '30-day rolling project health summary for the DevPulse dashboard'
     """)
 
+    table_name = f"`{catalog}`.`{schema}`.dashboard_gold_project_summary"
+    existing_columns = {field.name.lower() for field in spark.table(table_name).schema.fields}
+    new_columns = {
+        "avg_lead_time_days": "DOUBLE",
+        "merged_prs_last_30d": "BIGINT",
+        "avg_pr_review_time_hrs": "DOUBLE",
+        "deploy_frequency_30d": "DOUBLE",
+    }
+    missing_columns = [f"{name} {data_type}" for name, data_type in new_columns.items() if name not in existing_columns]
+    if missing_columns:
+        spark.sql(f"ALTER TABLE {table_name} ADD COLUMNS ({', '.join(missing_columns)})")
+
 
 def merge_project_summary(spark: SparkSession, df: DataFrame, catalog: str, schema: str) -> None:
+    df = df.drop("reviewed_prs_last_30d")
     df.createOrReplaceTempView("_dashboard_project_summary_staging")
     spark.sql(f"""
         MERGE INTO `{catalog}`.`{schema}`.dashboard_gold_project_summary AS tgt
@@ -209,20 +281,24 @@ def compute_kpis(spark: SparkSession, catalog: str, schema: str, as_of: date) ->
         )
     )
 
-    # JIRA org-wide latest snapshot
-    w = Window.partitionBy("project_key").orderBy(F.col("metric_date").desc())
+    # JIRA org-wide current issue state, using each issue's latest silver record
+    issue_window = Window.partitionBy("issue_key").orderBy(
+        F.col("processing_date").desc(),
+        F.col("updated_at").desc(),
+    )
     jr = (
-        spark.table(f"`{catalog}`.`{schema}`.jira_gold_project_daily_metrics")
-        .withColumn("_rn", F.row_number().over(w))
+        spark.table(f"`{catalog}`.`{schema}`.jira_silver_issues")
+        .withColumn("_rn", F.row_number().over(issue_window))
         .filter(F.col("_rn") == 1)
         .drop("_rn")
         .agg(
-            F.sum("open_issues").alias("total_open_issues"),
-            F.sum("in_progress_issues").alias("total_in_progress"),
-            F.sum("done_issues").alias("total_done_issues"),
-            F.sum("bugs_count").alias("total_bugs"),
-            F.sum("stories_count").alias("total_stories"),
-            F.sum("tasks_count").alias("total_tasks"),
+            F.sum(F.when(F.col("status") == "To Do", 1).otherwise(0)).alias("total_open_issues"),
+            F.sum(F.when(F.col("status").isin("In Progress", "In Review"), 1).otherwise(0))
+            .alias("total_in_progress"),
+            F.sum(F.when(F.col("status") == "Done", 1).otherwise(0)).alias("total_done_issues"),
+            F.sum(F.when(F.col("is_bug"), 1).otherwise(0)).alias("total_bugs"),
+            F.sum(F.when(F.col("issue_type") == "Story", 1).otherwise(0)).alias("total_stories"),
+            F.sum(F.when(F.col("issue_type") == "Task", 1).otherwise(0)).alias("total_tasks"),
         )
     )
 
