@@ -152,7 +152,7 @@ def _build_event(template_idx: int, dt: date, event_idx: int) -> dict:
 def get_events_for_date(processing_date: str) -> list[dict]:
     """Return Google Calendar events on processing_date.
 
-    Returns [] for weekends. Generates 2-5 events deterministically per weekday.
+    Returns [] for weekends. Generates 2-4 events deterministically per weekday.
     Output is fully deterministic. This is the integration point — replace with
     a real Google Calendar API call to go live.
     """
@@ -163,7 +163,7 @@ def get_events_for_date(processing_date: str) -> list[dict]:
         return []
 
     events = []
-    event_count = _h(f"events-{processing_date}", 4) + 2  # 2-5 events per day
+    event_count = _h(f"events-{processing_date}", 3) + 2  # 2-4 events per day
     for i in range(event_count):
         template_idx = _h(f"template-{processing_date}-{i}", len(_MEETING_TEMPLATES))
         event = _build_event(template_idx, dt, i)

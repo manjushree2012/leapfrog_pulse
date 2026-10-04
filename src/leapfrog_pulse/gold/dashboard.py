@@ -542,8 +542,8 @@ def compute_time_allocation(spark: SparkSession, catalog: str, schema: str, as_o
     - Code review hours = total_prs_reviewed_30d * CODE_REVIEW_HRS_PER_PR
     - Meeting hours = total_attendee_hours from gcal_gold_daily_meeting_hours (30d sum)
     - Eligible hours = working_days_in_window * unique_engineers * HOURS_PER_WORKING_DAY
-    - Other hours = max(0, eligible_hours - feature_hours - bug_hours - review_hours - meeting_hours)
-    - If total allocated > eligible_hours, cap each category proportionally
+    - Other hours = eligible hours not represented by the four tracked categories
+    - If tracked categories exceed eligible_hours, cap them proportionally
     - coverage_score = 0-100 based on data availability
     """
     window_start = as_of - timedelta(days=29)
@@ -583,14 +583,15 @@ def compute_time_allocation(spark: SparkSession, catalog: str, schema: str, as_o
             WHERE metric_date BETWEEN '{window_start}' AND '{window_end}'
         """).collect()
 
-        jira_data = jira_rows[0] if jira_rows else {}
+        jira_data = jira_rows[0].asDict() if jira_rows else {}
         story_worklog_hours = jira_data.get("total_story_worklog_hours") or 0
         bug_worklog_hours = jira_data.get("total_bug_worklog_hours") or 0
         story_sp_hours_estimate = jira_data.get("total_story_sp_hours_estimate") or 0
         bug_sp_hours_estimate = jira_data.get("total_bug_sp_hours_estimate") or 0
         issues_with_worklogs = jira_data.get("total_issues_with_worklogs") or 0
         total_issues_updated = jira_data.get("total_issues_updated") or 0
-    except Exception:
+    except Exception as exc:
+        print(f"Dashboard Gold: Jira time-allocation query failed: {exc}")
         story_worklog_hours = 0
         bug_worklog_hours = 0
         story_sp_hours_estimate = 0
@@ -624,10 +625,11 @@ def compute_time_allocation(spark: SparkSession, catalog: str, schema: str, as_o
             WHERE metric_date BETWEEN '{window_start}' AND '{window_end}'
         """).collect()
 
-        pr_data = pr_rows[0] if pr_rows else {}
+        pr_data = pr_rows[0].asDict() if pr_rows else {}
         reviewed_prs = pr_data.get("total_reviewed_prs") or 0
         code_review_hours = reviewed_prs * CODE_REVIEW_HRS_PER_PR
-    except Exception:
+    except Exception as exc:
+        print(f"Dashboard Gold: PR time-allocation query failed: {exc}")
         reviewed_prs = 0
         code_review_hours = 0
 
@@ -642,9 +644,10 @@ def compute_time_allocation(spark: SparkSession, catalog: str, schema: str, as_o
             WHERE metric_date BETWEEN '{window_start}' AND '{window_end}'
         """).collect()
 
-        gcal_data = gcal_rows[0] if gcal_rows else {}
+        gcal_data = gcal_rows[0].asDict() if gcal_rows else {}
         meeting_hours = gcal_data.get("total_meeting_hours") or 0
-    except Exception:
+    except Exception as exc:
+        print(f"Dashboard Gold: Google Calendar time-allocation query failed: {exc}")
         meeting_hours = 0
         gcal_available = False
 
@@ -662,11 +665,11 @@ def compute_time_allocation(spark: SparkSession, catalog: str, schema: str, as_o
     total_allocated = feature_hours + bug_hours + code_review_hours + meeting_hours
     other_hours = max(0, eligible_hours - total_allocated)
 
-    # Coverage score (0-100)
-    coverage_base = 20 if issues_with_worklogs > 0 else 0  # Jira data quality
-    coverage_base += 30 if gcal_available else 0  # Calendar data
-    coverage_base += 10 if reviewed_prs > 0 else 0  # PR data
-    coverage_score = min(100, coverage_base + 40)  # Base 40 + adjustments
+    # Coverage reflects which source data contributed to the four categories.
+    coverage_base = 20 if issues_with_worklogs > 0 else 0
+    coverage_base += 30 if gcal_available and meeting_hours > 0 else 0
+    coverage_base += 10 if reviewed_prs > 0 else 0
+    coverage_score = min(100, coverage_base + 40)
 
     # Build single-row result
     result_row = spark.createDataFrame(

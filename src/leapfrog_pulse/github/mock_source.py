@@ -189,11 +189,12 @@ def get_pull_requests_for_repo_and_date(repo_name: str, org: str, processing_dat
     Simulates the GitHub REST API:
       GET /repos/{owner}/{repo}/pulls?state=all&since={processing_date}T00:00:00Z
 
-    Returns 2-5 PRs deterministically per (repo, date).
+    Returns zero or one PR deterministically per (repo, date), keeping the
+    organization-wide review workload plausible for the mock team size.
     This is the integration point — replace with a real GitHub API call to go live.
     """
     dt = date.fromisoformat(processing_date)
-    count = _h(f"prcount-{org}/{repo_name}-{dt.isoformat()}", 4) + 2  # 2-5 PRs
+    count = 1 if _h(f"prcount-{org}/{repo_name}-{dt.isoformat()}", 10) < 5 else 0
 
     prs = []
     for i in range(count):

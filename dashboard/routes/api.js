@@ -290,11 +290,10 @@ router.get("/time-distribution", async (_req, res) => {
       allocated: "—",
       coverage: null,
       breakdown: [
-        { label: "Feature Work",  color: "#3b82f6", pct: 38, hours: null },
-        { label: "Code Reviews",  color: "#8b5cf6", pct: 12, hours: null },
-        { label: "Bug Fixing",    color: "#ef4444", pct: 15, hours: null },
-        { label: "Meetings",      color: "#f59e0b", pct: 20, hours: null },
-        { label: "Others",        color: "#d1d5db", pct: 15, hours: null },
+        { label: "Feature",  color: "#3b82f6", pct: 50, hours: null },
+        { label: "Reviews",  color: "#8b5cf6", pct: 20, hours: null },
+        { label: "Bugs",     color: "#ef4444", pct: 20, hours: null },
+        { label: "Meetings", color: "#f59e0b", pct: 10, hours: null },
       ],
     });
   }
@@ -304,23 +303,33 @@ router.get("/time-distribution", async (_req, res) => {
   const review    = num(r.code_review_hours)  || 0;
   const bugs      = num(r.bug_fixing_hours)   || 0;
   const meetings  = num(r.meeting_hours)      || 0;
-  const others    = num(r.other_hours)        || 0;
-  const allocated = num(r.total_allocated_hours) || 0;
-
-  const pct = (h) => allocated > 0 ? Math.round((h / allocated) * 100) : 0;
+  const categories = [
+    { label: "Feature",  color: "#3b82f6", hours: feature },
+    { label: "Reviews",  color: "#8b5cf6", hours: review },
+    { label: "Bugs",     color: "#ef4444", hours: bugs },
+    { label: "Meetings", color: "#f59e0b", hours: meetings },
+  ];
+  const allocated = categories.reduce((total, category) => total + category.hours, 0);
+  const shares = categories.map((category) => {
+    const exact = allocated > 0 ? (category.hours / allocated) * 100 : 0;
+    return { pct: Math.floor(exact), remainder: exact - Math.floor(exact) };
+  });
+  let pointsRemaining = allocated > 0 ? 100 - shares.reduce((sum, share) => sum + share.pct, 0) : 0;
+  const remainderOrder = shares
+    .map((share, index) => ({ index, remainder: share.remainder }))
+    .sort((a, b) => b.remainder - a.remainder);
+  for (let i = 0; i < pointsRemaining; i++) shares[remainderOrder[i].index].pct += 1;
 
   res.json({
     total:     eligible > 0 ? `${Math.round(eligible)}h eligible` : "—",
     allocated: allocated > 0 ? `${Math.round(allocated)}h allocated` : "—",
     coverage:  num(r.coverage_score),
     featureSource: r.feature_source || null,
-    breakdown: [
-      { label: "Feature Work",  color: "#3b82f6", pct: pct(feature),  hours: Math.round(feature)  },
-      { label: "Code Reviews",  color: "#8b5cf6", pct: pct(review),   hours: Math.round(review)   },
-      { label: "Bug Fixing",    color: "#ef4444", pct: pct(bugs),     hours: Math.round(bugs)     },
-      { label: "Meetings",      color: "#f59e0b", pct: pct(meetings), hours: Math.round(meetings) },
-      { label: "Others",        color: "#d1d5db", pct: pct(others),   hours: Math.round(others)   },
-    ].filter((b) => b.pct > 0 || b.hours > 0),
+    breakdown: categories.map((category, index) => ({
+      ...category,
+      pct: shares[index].pct,
+      hours: Math.round(category.hours),
+    })),
   });
 });
 
