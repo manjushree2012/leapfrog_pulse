@@ -35,6 +35,7 @@ def setup_all_tables(spark: SparkSession, catalog: str, schema: str) -> None:
     # Bronze
     ensure_vyaguta_bronze(spark, catalog, schema)
     print(f"Setup: vyaguta_bronze_projects ready in {catalog}.{schema}")
+    print(f"Setup: vyaguta_bronze_project_members ready in {catalog}.{schema}")
     ensure_github_project_bronze(spark, catalog, schema)
     print(f"Setup: github_bronze_project_commits ready in {catalog}.{schema}")
     ensure_jira_bronze(spark, catalog, schema)

@@ -10,9 +10,10 @@ Authentication for the real API:
     Use the googleapiclient.discovery.build('calendar','v3') client.
 
 Replacing this module:
-    Implement get_events_for_date(processing_date: str) -> list[dict] using the
-    real Google Calendar API. The returned dicts must match the field schema
-    defined in RECORD_SCHEMA.
+    Implement get_events_for_date(processing_date: str, engineer_emails:
+    list[str]) -> list[dict] using the real Google Calendar API to fetch each
+    supplied team member's calendar. The returned dicts must match the field
+    schema defined in RECORD_SCHEMA.
 
 Event eligibility rules (configurable, applied before returning):
     - status != "cancelled"
@@ -23,10 +24,6 @@ Event eligibility rules (configurable, applied before returning):
 
 import hashlib
 from datetime import date, datetime, timedelta
-
-from leapfrog_pulse.vyaguta.mock_source import get_unique_engineers
-
-_ENGINEERS = [engineer["employee_email"] for engineer in get_unique_engineers()]
 
 _MEETING_TEMPLATES = [
     {"title": "Daily Standup", "category": "standup", "duration_minutes": 15, "min_attendees": 3, "max_attendees": 5},
@@ -71,7 +68,7 @@ def _event_id(template_idx: int, dt: date, event_idx: int) -> str:
     return f"evt_{base + offset}"
 
 
-def _build_event(template_idx: int, dt: date, event_idx: int) -> dict:
+def _build_event(template_idx: int, dt: date, event_idx: int, engineer_emails: list[str]) -> dict:
     """Generate a single mock event."""
     template = _MEETING_TEMPLATES[template_idx]
     event_id = _event_id(template_idx, dt, event_idx)
@@ -87,14 +84,14 @@ def _build_event(template_idx: int, dt: date, event_idx: int) -> dict:
     start_at = datetime(dt.year, dt.month, dt.day, hour, minute, 0)
     end_at = start_at + timedelta(minutes=duration_minutes)
 
-    # Attendees: deterministic subset of _ENGINEERS
+    # Attendees: deterministic subset of the Vyaguta-supplied team members
     attendee_count = min(
-        len(_ENGINEERS),
+        len(engineer_emails),
         _h(f"att-count-{seed}", template["max_attendees"] - template["min_attendees"] + 1)
         + template["min_attendees"],
     )
-    attendee_emails = sorted(_ENGINEERS, key=lambda email: (_h(f"att-{seed}-{email}", len(_ENGINEERS)), email))
-    attendee_emails = attendee_emails[:attendee_count]
+    attendees = sorted(engineer_emails, key=lambda email: (_h(f"att-{seed}-{email}", len(engineer_emails)), email))
+    attendee_emails = attendees[:attendee_count]
 
     # Acceptance rate: ~80% accept
     accepted_count = 0
@@ -109,7 +106,7 @@ def _build_event(template_idx: int, dt: date, event_idx: int) -> dict:
         accepted_count = 1
 
     # Organizer is a random engineer
-    organizer_email = _ENGINEERS[_h(f"org-{seed}", len(_ENGINEERS))]
+    organizer_email = engineer_emails[_h(f"org-{seed}", len(engineer_emails))]
 
     # Is recurring
     is_recurring = _h(f"recur-{seed}", 100) < 20  # ~20% recurring
@@ -125,7 +122,7 @@ def _build_event(template_idx: int, dt: date, event_idx: int) -> dict:
 
     # is_engineering_meeting: True when category != "other" and status == "confirmed" and at least 2 engineers
     is_engineering_meeting = (
-        category != "other" and status == "confirmed" and len([e for e in attendee_emails if e in _ENGINEERS]) >= 2
+        category != "other" and status == "confirmed" and len(attendee_emails) >= 2
     )
 
     import json
@@ -148,36 +145,38 @@ def _build_event(template_idx: int, dt: date, event_idx: int) -> dict:
     }
 
 
-def get_events_for_date(processing_date: str) -> list[dict]:
+def get_events_for_date(processing_date: str, engineer_emails: list[str]) -> list[dict]:
     """Return Google Calendar events on processing_date.
 
-    Returns [] for weekends. Generates 2-4 events deterministically per weekday.
+    Generates events only for the supplied team-member calendars. Returns []
+    when there are no team members or the date is a weekend.
     Output is fully deterministic. This is the integration point — replace with
     a real Google Calendar API call to go live.
     """
     dt = date.fromisoformat(processing_date)
+    engineer_emails = sorted({email.strip().lower() for email in engineer_emails if email and email.strip()})
 
     # No events on weekends (Monday=0, Sunday=6)
-    if dt.weekday() >= 5:
+    if dt.weekday() >= 5 or not engineer_emails:
         return []
 
     events = []
     event_count = _h(f"events-{processing_date}", 3) + 2  # 2-4 events per day
     for i in range(event_count):
         template_idx = _h(f"template-{processing_date}-{i}", len(_MEETING_TEMPLATES))
-        event = _build_event(template_idx, dt, i)
+        event = _build_event(template_idx, dt, i, engineer_emails)
         events.append(event)
 
     return events
 
 
-def get_events_for_date_range(start_date: str, end_date: str) -> list[dict]:
+def get_events_for_date_range(start_date: str, end_date: str, engineer_emails: list[str]) -> list[dict]:
     """Return Google Calendar events for a date range."""
     events = []
     start = date.fromisoformat(start_date)
     end = date.fromisoformat(end_date)
     current = start
     while current <= end:
-        events.extend(get_events_for_date(current.isoformat()))
+        events.extend(get_events_for_date(current.isoformat(), engineer_emails))
         current += timedelta(days=1)
     return events

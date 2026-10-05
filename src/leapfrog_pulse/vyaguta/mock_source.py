@@ -4,15 +4,15 @@ This module simulates the Vyaguta internal organization API. It is the only
 component that needs to be replaced when integrating the real Vyaguta API.
 All downstream Bronze/Silver/Gold logic is source-agnostic.
 
-Vyaguta is Leapfrog Technology's internal HR/org tool. This mock covers the
-Projects domain: each project exposes its associated GitHub repositories and
-Jira project keys. This data is relatively static and is loaded once (not on
-a daily schedule) so that downstream pipelines can look up repo/project metadata.
+Vyaguta is Leapfrog Technology's internal HR/org tool. This mock covers
+project metadata and project-member assignments. Project records include
+associated GitHub repositories and Jira project keys; member records include
+employee names and email addresses for downstream calendar ingestion.
 
 Replacing this module:
-    Implement get_all_projects() -> list[dict] by calling the real Vyaguta REST
-    API and reshaping the response to match the field schema defined below.
-    The returned dicts must match the same field schema defined in RECORD_SCHEMA.
+    Implement get_all_projects() and get_project_members() by calling the real
+    Vyaguta REST API and reshaping the responses to match RECORD_SCHEMA and
+    MEMBER_SCHEMA, respectively.
 """
 
 import hashlib

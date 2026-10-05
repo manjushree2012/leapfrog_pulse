@@ -12,13 +12,13 @@
 #               ├── project_github_pr_bronze → project_github_pr_silver → project_github_pr_gold ───────────────────────┤
 #               ├── project_github_deployment_bronze → project_github_deployment_silver → project_github_deployment_gold ┤
 #               ├── jira_bronze → jira_silver → jira_gold ────────────────────────────────────────────────────────────────┤→ dashboard_gold
-#               └── gcal_bronze → gcal_silver → gcal_gold ────────────────────────────────────────────────────────────────┘
+#               ├── gcal_bronze (uses member emails) → gcal_silver → gcal_gold ───────────────────────────────────────────┘
 #
 # Bronze layer:
-#   vyaguta_bronze          — fetches all active projects from Vyaguta (mock), writes vyaguta_bronze_projects
+#   vyaguta_bronze          — fetches Vyaguta projects and team members, writes project and member bronze tables
 #   project_github_bronze   — per-project GitHub commits for the day, writes github_bronze_project_commits
 #   jira_bronze             — per-project JIRA issues for the day, writes jira_bronze_issues
-#   gcal_bronze             — per-day Google Calendar events, writes gcal_bronze_events
+#   gcal_bronze             — per-day team-member Google Calendar events, writes gcal_bronze_events
 #
 # Silver layer (validated + normalized):
 #   vyaguta_silver          — writes vyaguta_silver_projects
@@ -177,7 +177,7 @@ resources:
 
         - task_key: gcal_bronze
           depends_on:
-            - task_key: daily_ingest_setup
+            - task_key: vyaguta_bronze
           python_wheel_task:
             package_name: leapfrog_pulse
             entry_point: gcal_bronze

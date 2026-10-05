@@ -45,7 +45,13 @@ _RAW_SCHEMA = StructType(
 
 
 def build_bronze_df(spark: SparkSession, catalog: str, schema: str, processing_date: str) -> DataFrame:
-    events = get_events_for_date(processing_date)
+    members = spark.sql(f"""
+        SELECT DISTINCT LOWER(TRIM(employee_email)) AS employee_email
+        FROM `{catalog}`.`{schema}`.`vyaguta_bronze_project_members`
+        WHERE employee_email IS NOT NULL AND TRIM(employee_email) != ''
+    """).collect()
+    engineer_emails = [member["employee_email"] for member in members]
+    events = get_events_for_date(processing_date, engineer_emails)
 
     if not events:
         return spark.createDataFrame([], _RAW_SCHEMA)

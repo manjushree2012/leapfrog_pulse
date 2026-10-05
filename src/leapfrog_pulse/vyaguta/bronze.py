@@ -1,8 +1,9 @@
-"""Vyaguta Bronze layer — raw ingestion of project/repository metadata.
+"""Vyaguta Bronze layer — raw ingestion of project and team-member metadata.
 
 Vyaguta data is relatively static, so this layer is run once (or on-demand)
-rather than on a daily schedule. It ingests the full project catalogue from
-the mock source (or real Vyaguta API) and upserts into the bronze table.
+rather than on a daily schedule. It ingests the project catalogue and member
+assignments from the mock source (or real Vyaguta API) into separate bronze
+tables.
 
 Entry point:
     uv run python -m leapfrog_pulse.vyaguta.bronze --catalog <catalog> --schema <schema>
@@ -14,7 +15,7 @@ from datetime import datetime, timezone
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql.types import StringType, StructField, StructType, TimestampType
 
-from leapfrog_pulse.vyaguta.mock_source import get_all_projects
+from leapfrog_pulse.vyaguta.mock_source import get_all_projects, get_project_members
 
 _RAW_SCHEMA = StructType(
     [
@@ -29,6 +30,16 @@ _RAW_SCHEMA = StructType(
     ]
 )
 
+_MEMBERS_SCHEMA = StructType(
+    [
+        StructField("project_id", StringType(), nullable=False),
+        StructField("employee_name", StringType(), nullable=True),
+        StructField("employee_email", StringType(), nullable=False),
+        StructField("role", StringType(), nullable=True),
+        StructField("company", StringType(), nullable=True),
+    ]
+)
+
 
 def build_bronze_df(spark: SparkSession) -> DataFrame:
     """Load all Vyaguta project-repo rows into a DataFrame with ingestion metadata."""
@@ -36,6 +47,16 @@ def build_bronze_df(spark: SparkSession) -> DataFrame:
 
     rows = get_all_projects()
     df = spark.createDataFrame(rows, schema=_RAW_SCHEMA)
+    now = datetime.now(tz=timezone.utc)
+    return df.withColumn("ingestion_timestamp", F.lit(now).cast(TimestampType()))
+
+
+def build_members_bronze_df(spark: SparkSession) -> DataFrame:
+    """Load Vyaguta project-member rows, including employee email addresses."""
+    from pyspark.sql import functions as F
+
+    rows = get_project_members()
+    df = spark.createDataFrame(rows, schema=_MEMBERS_SCHEMA)
     now = datetime.now(tz=timezone.utc)
     return df.withColumn("ingestion_timestamp", F.lit(now).cast(TimestampType()))
 
@@ -56,6 +77,18 @@ def ensure_bronze_table(spark: SparkSession, catalog: str, schema: str) -> None:
         USING DELTA
         COMMENT 'Vyaguta project-to-repository mapping — raw ingestion layer'
     """)
+    spark.sql(f"""
+        CREATE TABLE IF NOT EXISTS `{catalog}`.`{schema}`.`vyaguta_bronze_project_members` (
+            project_id          STRING NOT NULL,
+            employee_name      STRING,
+            employee_email     STRING NOT NULL,
+            role               STRING,
+            company            STRING,
+            ingestion_timestamp TIMESTAMP
+        )
+        USING DELTA
+        COMMENT 'Vyaguta project-member assignments, including employee email addresses'
+    """)
 
 
 def merge_bronze(spark: SparkSession, df: DataFrame, catalog: str, schema: str) -> None:
@@ -69,10 +102,24 @@ def merge_bronze(spark: SparkSession, df: DataFrame, catalog: str, schema: str) 
     """)
 
 
+def merge_members_bronze(spark: SparkSession, df: DataFrame, catalog: str, schema: str) -> None:
+    df.createOrReplaceTempView("_vyaguta_bronze_members_staging")
+    spark.sql(f"""
+        MERGE INTO `{catalog}`.`{schema}`.`vyaguta_bronze_project_members` AS target
+        USING _vyaguta_bronze_members_staging AS source
+        ON target.project_id = source.project_id AND target.employee_email = source.employee_email
+        WHEN MATCHED THEN UPDATE SET *
+        WHEN NOT MATCHED THEN INSERT *
+    """)
+
+
 def ingest_bronze(spark: SparkSession, catalog: str, schema: str) -> int:
     ensure_bronze_table(spark, catalog, schema)
     df = build_bronze_df(spark)
+    members_df = build_members_bronze_df(spark)
     merge_bronze(spark, df, catalog, schema)
+    merge_members_bronze(spark, members_df, catalog, schema)
+    print(f"Vyaguta Bronze: upserted {members_df.count()} project-member rows.")
     return df.count()
 
 
