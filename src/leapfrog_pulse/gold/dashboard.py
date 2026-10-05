@@ -29,13 +29,14 @@ from pyspark.sql import functions as F
 from pyspark.sql.window import Window
 
 # Constants for time allocation computation
-CODE_REVIEW_HRS_PER_PR = 1.5   # estimated hours per PR review (no actual review time data)
+CODE_REVIEW_HRS_PER_PR = 1.5  # estimated hours per PR review (no actual review time data)
 HOURS_PER_WORKING_DAY = 8
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _resolve_date(processing_date: str) -> date:
     if processing_date == "yesterday":
@@ -50,6 +51,7 @@ def _now() -> datetime:
 # ---------------------------------------------------------------------------
 # dashboard_gold_project_summary
 # ---------------------------------------------------------------------------
+
 
 def compute_project_summary(spark: SparkSession, catalog: str, schema: str, as_of: date) -> DataFrame:
     window_start = (as_of - timedelta(days=29)).isoformat()
@@ -88,8 +90,7 @@ def compute_project_summary(spark: SparkSession, catalog: str, schema: str, as_o
         .groupBy("project_id")
         .agg(
             F.sum(F.when(F.col("status") == "To Do", 1).otherwise(0)).alias("open_issues"),
-            F.sum(F.when(F.col("status").isin("In Progress", "In Review"), 1).otherwise(0))
-            .alias("in_progress_issues"),
+            F.sum(F.when(F.col("status").isin("In Progress", "In Review"), 1).otherwise(0)).alias("in_progress_issues"),
             F.sum(F.when(F.col("status") == "Done", 1).otherwise(0)).alias("done_issues"),
             F.sum(F.when(F.col("is_bug"), 1).otherwise(0)).alias("bugs_count"),
             F.sum(F.when(F.col("issue_type") == "Story", 1).otherwise(0)).alias("stories_count"),
@@ -170,10 +171,7 @@ def compute_project_summary(spark: SparkSession, catalog: str, schema: str, as_o
         .agg(
             F.countDistinct("pr_id").alias("merged_prs_last_30d"),
             F.round(
-                F.avg(
-                    (F.unix_timestamp("merged_at") - F.unix_timestamp("created_at"))
-                    / F.lit(86400.0)
-                ),
+                F.avg((F.unix_timestamp("merged_at") - F.unix_timestamp("created_at")) / F.lit(86400.0)),
                 2,
             ).alias("avg_lead_time_days"),
         )
@@ -185,15 +183,13 @@ def compute_project_summary(spark: SparkSession, catalog: str, schema: str, as_o
         .filter(F.col("metric_date").between(window_start, window_end))
         .groupBy("project_id")
         .agg(
-            F.round(F.sum("successful_prod_deployments") / F.lit(30.0), 2)
-            .alias("deploy_frequency_30d"),
+            F.round(F.sum("successful_prod_deployments") / F.lit(30.0), 2).alias("deploy_frequency_30d"),
         )
     )
 
     # Join everything — Vyaguta is the master project list
     result = (
-        vy_projects
-        .join(gh, "project_id", "left")
+        vy_projects.join(gh, "project_id", "left")
         .join(jr_latest, "project_id", "left")
         .join(jr_30d, "project_id", "left")
         .join(pr_30d, "project_id", "left")
@@ -206,35 +202,46 @@ def compute_project_summary(spark: SparkSession, catalog: str, schema: str, as_o
     #   commit_score    (0-40): ≥20 commits/30d = 40 pts
     #   resolution_score (0-40): done/(done+open) * 40
     #   bug_score       (0-20): <3 bugs = 20, each bug above 3 = -4 pts
-    result = result.withColumn(
-        "commit_score",
-        F.when(F.col("commits_last_30d").isNull(), F.lit(0))
-         .otherwise(F.least(F.lit(40), (F.col("commits_last_30d") / F.lit(20.0) * 40).cast("int"))),
-    ).withColumn(
-        "resolution_score",
-        F.when(
-            F.col("done_issues_last_30d").isNull() | F.col("open_issues").isNull(),
-            F.lit(0),
-        ).otherwise(
-            F.when(
-                (F.col("done_issues_last_30d") + F.col("open_issues")) == 0,
-                F.lit(20),
-            ).otherwise(
-                (F.col("done_issues_last_30d").cast("double")
-                 / (F.col("done_issues_last_30d") + F.col("open_issues")) * 40).cast("int"),
+    result = (
+        result.withColumn(
+            "commit_score",
+            F.when(F.col("commits_last_30d").isNull(), F.lit(0)).otherwise(
+                F.least(F.lit(40), (F.col("commits_last_30d") / F.lit(20.0) * 40).cast("int"))
             ),
-        ),
-    ).withColumn(
-        "bug_score",
-        F.when(F.col("bugs_count").isNull(), F.lit(20))
-         .otherwise(F.greatest(F.lit(0), F.lit(20) - F.col("bugs_count") * 4)),
-    ).withColumn(
-        "health_score",
-        F.least(
-            F.lit(100),
-            F.greatest(F.lit(0), F.col("commit_score") + F.col("resolution_score") + F.col("bug_score")),
-        ),
-    ).drop("commit_score", "resolution_score", "bug_score")
+        )
+        .withColumn(
+            "resolution_score",
+            F.when(
+                F.col("done_issues_last_30d").isNull() | F.col("open_issues").isNull(),
+                F.lit(0),
+            ).otherwise(
+                F.when(
+                    (F.col("done_issues_last_30d") + F.col("open_issues")) == 0,
+                    F.lit(20),
+                ).otherwise(
+                    (
+                        F.col("done_issues_last_30d").cast("double")
+                        / (F.col("done_issues_last_30d") + F.col("open_issues"))
+                        * 40
+                    ).cast("int"),
+                ),
+            ),
+        )
+        .withColumn(
+            "bug_score",
+            F.when(F.col("bugs_count").isNull(), F.lit(20)).otherwise(
+                F.greatest(F.lit(0), F.lit(20) - F.col("bugs_count") * 4)
+            ),
+        )
+        .withColumn(
+            "health_score",
+            F.least(
+                F.lit(100),
+                F.greatest(F.lit(0), F.col("commit_score") + F.col("resolution_score") + F.col("bug_score")),
+            ),
+        )
+        .drop("commit_score", "resolution_score", "bug_score")
+    )
 
     return result.withColumn("as_of_date", F.lit(as_of.isoformat()).cast("date")).withColumn(
         "updated_at", F.lit(_now()).cast("timestamp")
@@ -310,6 +317,7 @@ def merge_project_summary(spark: SparkSession, df: DataFrame, catalog: str, sche
 # dashboard_gold_kpis
 # ---------------------------------------------------------------------------
 
+
 def compute_kpis(spark: SparkSession, catalog: str, schema: str, as_of: date) -> DataFrame:
     window_start = (as_of - timedelta(days=29)).isoformat()
     window_end = as_of.isoformat()
@@ -338,8 +346,7 @@ def compute_kpis(spark: SparkSession, catalog: str, schema: str, as_of: date) ->
         .drop("_rn")
         .agg(
             F.sum(F.when(F.col("status") == "To Do", 1).otherwise(0)).alias("total_open_issues"),
-            F.sum(F.when(F.col("status").isin("In Progress", "In Review"), 1).otherwise(0))
-            .alias("total_in_progress"),
+            F.sum(F.when(F.col("status").isin("In Progress", "In Review"), 1).otherwise(0)).alias("total_in_progress"),
             F.sum(F.when(F.col("status") == "Done", 1).otherwise(0)).alias("total_done_issues"),
             F.sum(F.when(F.col("is_bug"), 1).otherwise(0)).alias("total_bugs"),
             F.sum(F.when(F.col("issue_type") == "Story", 1).otherwise(0)).alias("total_stories"),
@@ -443,6 +450,7 @@ def merge_kpis(spark: SparkSession, df: DataFrame, catalog: str, schema: str) ->
 # dashboard_gold_recent_activity
 # ---------------------------------------------------------------------------
 
+
 def compute_recent_activity(spark: SparkSession, catalog: str, schema: str) -> DataFrame:
     commits = (
         spark.table(f"`{catalog}`.`{schema}`.github_silver_project_commits")
@@ -521,6 +529,7 @@ def refresh_activity(spark: SparkSession, df: DataFrame, catalog: str, schema: s
 # ---------------------------------------------------------------------------
 # dashboard_gold_time_allocation
 # ---------------------------------------------------------------------------
+
 
 def _count_working_days(start: date, end: date) -> int:
     """Count weekdays (Mon-Fri) in [start, end] inclusive."""
@@ -735,6 +744,7 @@ def merge_time_allocation(spark: SparkSession, df: DataFrame, catalog: str, sche
 # ---------------------------------------------------------------------------
 # Orchestration
 # ---------------------------------------------------------------------------
+
 
 def process_dashboard(spark: SparkSession, catalog: str, schema: str, processing_date: str) -> None:
     as_of = _resolve_date(processing_date)
